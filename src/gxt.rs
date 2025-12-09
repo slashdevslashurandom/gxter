@@ -40,7 +40,7 @@ pub struct GXTStringTable {
 // icons for PS2 controller buttons or the HUD.
 //
 // empty strings in this array are treated by the decode_character function as an indication
-// that the character needs to be escaped using the \xABCD notation.
+// that the character needs to be escaped using the \xAB or \uABCD notation.
 
 const GTA3_DEFAULT_CHARACTER_TABLE: [&str; 224] = [
     " ", "!", "\"","#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
@@ -48,7 +48,7 @@ const GTA3_DEFAULT_CHARACTER_TABLE: [&str; 224] = [
     "™", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O",
     "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "[", "\\","]", "^", "°",
     "`", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o",
-    "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "❤", "◯", "", "~", "",
+    "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "❤", "◯",  "", "~",  "",
     "À", "Á", "Â", "Ä", "Æ", "Ç", "È", "É", "Ê", "Ë", "Ì", "Í", "Î", "Ï", "Ò", "Ó",
     "Ô", "Ö", "Ù", "Ú", "Û", "Ü", "ß", "à", "á", "â", "ä", "æ", "ç", "è", "é", "ê",
     "ë", "ì", "í", "î", "ï", "ò", "ó", "ô", "ö", "ù", "ú", "û", "ü", "Ñ", "ñ", "¿",
@@ -69,12 +69,13 @@ const VICE_DEFAULT_CHARACTER_TABLE: [&str; 224] = [
     "À", "Á", "Â", "Ä", "Æ", "Ç", "È", "É", "Ê", "Ë", "Ì", "Í", "Î", "Ï", "Ò", "Ó",
     "Ô", "Ö", "Ù", "Ú", "Û", "Ü", "ß", "à", "á", "â", "ä", "æ", "ç", "è", "é", "ê",
     "ë", "ì", "í", "î", "ï", "ò", "ó", "ô", "ö", "ù", "ú", "û", "ü", "Ñ", "ñ", "¿",
-    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ":", "a", "b", "c", "d", "e",
-    "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u",
-    "v", "w", "x", "y", "z", "à", "á", "â", "ä", "æ", "ç", "è", "é", "ê", "ë", "ì",
-    "í", "î", "ï", "ò", "ó", "ô", "ö", "ù", "ú", "û", "ü", "ß", "ñ", "¿", "'", ".",
      "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
-];
+     "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
+     "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
+     "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
+     "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
+]; //the additional letter characters are temporarily disabled, until i can figure out how to
+   //separate them from the regular ones
 
 const SAN_DEFAULT_CHARACTER_TABLE: [&str; 224] = [ //this is just the CP1252 codepage
     " ", "!", "\"","#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
@@ -170,7 +171,8 @@ fn string_from_name(name: &GXTStringName) -> String {
                     for i in 0..=l { //inclusive range!
                         let c = t[i];
                         
-                        if (c >= b' ') && (c < 127) && (c != b'[') && (c != b']') {
+                        // =, [ and ] are escaped in order to avoid collisions with formatting
+                        if (c >= b' ') && (c < 127) && (c != b'=') && (c != b'[') && (c != b']') {
                             ret.push(c as char);
                         } else {
                             ret.push_str(&format!("\\x{:02x}", c));
