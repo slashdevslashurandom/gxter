@@ -1,9 +1,14 @@
+use serde::ser::{Serialize, Serializer, SerializeMap};
 use std::io::prelude::*;
-use std::io::BufReader;
-use std::fs::File;
+//use std::fmt;
+//use serde::Serialize;
+//use serde::Deserialize;
+//use toml::Table;
+use thiserror::Error;
+use indexmap::IndexMap;
 use std::collections::HashMap;
 
-#[derive(Clone)]
+#[derive(serde::Serialize,serde::Deserialize,Clone)]
 pub enum GXTFileFormat {
     Three, //GTA 3, GTA VC Xbox
     Vice, //GTA VC, LCS, VCS
@@ -11,25 +16,81 @@ pub enum GXTFileFormat {
     San16, //GTA SA, IV (16-bit characters)
 }
 
-#[derive(Clone)]
+/// Specifies the order in which strings are to be stored, when read from a GXT file
+pub enum ImportOrdering {
+    /// Do not change the order during import (order according to TDAT and TKEY entries)
+    Native, 
+
+    /// Sort tables and strings sorted by their names (alphabetically or by CRC32 hash)    
+    Key,    
+
+    /// Sort tables and strings sorted by their data offsets in the GXT file
+    Offset, 
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum GXTStringName {
     Text([u8;8]),
     CRC32(u32),
 }
 
-pub struct GXTFile {
-    pub format: GXTFileFormat,
-    pub main_table: GXTStringTable,
-    pub aux_tables: HashMap<String,GXTStringTable>,
-    pub tables_ordered_by_key: Vec<String>,
-    pub tables_ordered_by_offset: Vec<String>,
+#[derive(Error, Debug)]
+pub enum GXTError {
+    #[error("GXT file parsing error: {0}")]
+    ParsingError(String),
+    #[error("GXT file compilation error: {0}")]
+    CompilationError(String),
+    #[error("I/O error")]
+    IOError(#[from] std::io::Error),
+    #[error("TOML serialization error")]
+    TOMLSerError(#[from] toml::ser::Error),
+    #[error("TOML deserialization error")]
+    TOMLDeError(#[from] toml::de::Error),
 }
 
+#[derive(serde::Serialize,serde::Deserialize)]
+pub struct GXTFile {
+
+    /// Specifies the format used when decompiling or compiling the GXT file.
+    pub format: GXTFileFormat,
+
+    /// Contains the "main" table. In GTA 3 files, this is the only table, whereas in GTA VC and SA
+    /// files, it is the first table in the file.
+    pub main_table: GXTStringTable,
+
+    /// Contains all the "auxiliary" tables. This container must be empty when working with GTA 3
+    /// files. The default ordering when decompiling a GXT file is to follow the list as
+    /// specified in the TABL section.
+    pub aux_tables: IndexMap<String,GXTStringTable>,
+}
+
+impl Serialize for GXTStringTable {
+    fn serialize <S> (&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.data.len()))?;
+        for (k, v) in &self.data {
+            map.serialize_entry(k,v)?;
+        }
+        map.end()
+    }
+}
+
+// we use a custom serializer to provide custom ordering of keys, but we don't need that for
+// deserialization, so that one's derived instead
+#[derive(serde::Deserialize)]
 pub struct GXTStringTable {
-    //pub name: Option<String>,
-    pub data: HashMap<String,String>,
-    pub values_ordered_by_key: Vec<String>, //keys ordered by how they were arranged in TKEY
-    pub values_ordered_by_offset: Vec<String>, //keys ordered by how they were arranged in TDAT
+
+    /// Contains all the strings in the table. The key is the string's name, the value is the
+    /// string's contents. In GTA 3 and VC files, a string's name can be 8 bytes large at most. 
+    /// In GTA SA format files, string names are encoded using CRC32, and string
+    /// names retrieved from decompilation will be decoded as "#XXXXXXXX", where the letters X
+    /// represent hexadecimal digits of the CRC32 hash. As it is a 9-byte string, it should be
+    /// obvious that such a string can't be a "native" name.
+    /// 
+    #[serde(flatten)]
+    pub data: IndexMap<String,String>,
 }
 
 // -- internal structures, not recommended for use
@@ -130,11 +191,6 @@ struct GXTInternalTKEYEntry {
     name: GXTStringName, //name of the text entry
 }
 
-//struct GXTInternalTDAT {
-//    size: u32, //number of elements
-//    entries: Vec<Vec<u16>>, //array of UTF-16 strings
-//}
-
 #[derive(Clone)]
 struct GXTInternalTABLEntry {
     name: [u8;8],
@@ -174,6 +230,8 @@ fn string_from_name(name: &GXTStringName) -> String {
                         // =, [ and ] are escaped in order to avoid collisions with formatting
                         if (c >= b' ') && (c < 127) && (c != b'=') && (c != b'[') && (c != b']') {
                             ret.push(c as char);
+                        } else if c == b'\\' {
+                            ret.push_str("\\\\");
                         } else {
                             ret.push_str(&format!("\\x{:02x}", c));
                         }
@@ -188,13 +246,13 @@ fn string_from_name(name: &GXTStringName) -> String {
     }
 }
 
-fn gxt_read_tabl(file: &mut (impl Read + std::io::Seek)) -> Result<GXTInternalTABL,std::io::Error> {
+fn gxt_read_tabl(file: &mut (impl Read + std::io::Seek)) -> Result<GXTInternalTABL,GXTError> {
 
     let mut magic_number: [u8; 4] = [0;4];
     file.read_exact(&mut magic_number)?;
     
     if magic_number != *b"TABL" {
-        return Err(std::io::Error::other("Invalid TABL header"));
+        return Err(GXTError::ParsingError("Invalid TABL header".to_string()));
     }
 
     let mut tabl = GXTInternalTABL {
@@ -227,7 +285,7 @@ fn gxt_read_tabl(file: &mut (impl Read + std::io::Seek)) -> Result<GXTInternalTA
 
 }
 
-fn gxt_read_tkey(file: &mut (impl Read + std::io::Seek), format: &GXTFileFormat, name: Option<[u8;8]>, offset:Option<u32>) -> Result<GXTInternalTKEY,std::io::Error> {
+fn gxt_read_tkey(file: &mut (impl Read + std::io::Seek), format: &GXTFileFormat, name: Option<[u8;8]>, offset:Option<u32>, ordering: &Option<ImportOrdering>) -> Result<GXTInternalTKEY,GXTError> {
     //name should be None for GTA3 and VC's MAIN entry
 
     //eprintln!("Reading the {}...", match name {
@@ -251,7 +309,7 @@ fn gxt_read_tkey(file: &mut (impl Read + std::io::Seek), format: &GXTFileFormat,
     file.read_exact(&mut magic_number)?;
     
     if magic_number != *b"TKEY" {
-        return Err(std::io::Error::other("Invalid TKEY header"));
+        return Err(GXTError::ParsingError("Invalid TKEY header".to_string()));
     }
 
     let mut tkey = GXTInternalTKEY {
@@ -296,10 +354,22 @@ fn gxt_read_tkey(file: &mut (impl Read + std::io::Seek), format: &GXTFileFormat,
 
         index += 1;
     }
+    
+    match ordering {
+        None | Some(ImportOrdering::Native) => {},
+        Some(ImportOrdering::Key) => {
+            tkey.entries.sort_by(|a,b| a.name.cmp(&b.name));
+        },
+        Some(ImportOrdering::Offset) => {
+            tkey.entries.sort_by(|a,b| a.offset.cmp(&b.offset));
+        },
+    }
+
+
     return Ok(tkey);
 }
 
-fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY, tkey_offset: Option<u32>, format: &GXTFileFormat) -> Result<GXTStringTable,std::io::Error> {
+fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY, tkey_offset: Option<u32>, format: &GXTFileFormat, ordering: &Option<ImportOrdering>) -> Result<GXTStringTable,GXTError> {
     
     let mut tkey_data_sorted = tkey.entries.clone();
     tkey_data_sorted.sort_by(|a,b| a.offset.cmp(&b.offset));
@@ -318,13 +388,14 @@ fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY,
     file.read_exact(&mut magic_number)?;
     
     if magic_number != *b"TDAT" {
-        return Err(std::io::Error::other("Invalid TDAT header"));
+        return Err(GXTError::ParsingError("Invalid TDAT header".to_string()));
     }
 
     let mut raw_size: [u8; 4] = [0;4];
     file.read_exact(&mut raw_size)?;
 
-    let mut main_table = HashMap::<String,String>::new();
+    let mut table = IndexMap::<String,String>::new();
+    let mut offset_table = HashMap::<String,u64>::new();
 
     for e in &tkey.entries {
         let name = string_from_name(&e.name);
@@ -368,38 +439,62 @@ fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY,
         
         let name_c1 = name.clone();
         key_ordering.push(name_c1);
-        main_table.insert(name, value);
+        offset_table.insert(name.clone(), offset);
+        table.insert(name, value);
     }
+
+    match ordering {
+        None | Some(ImportOrdering::Native) => {},
+        Some(ImportOrdering::Key) => {
+            table.sort_unstable_keys();
+        },
+        Some(ImportOrdering::Offset) => {
+            table.sort_by(|a,_,b,_| offset_table[a].cmp(&offset_table[b]));
+        },
+    }
+
+    key_ordering.sort_by(|a,b| a.cmp(&b));
 
     for e in tkey_data_sorted {
         let name = string_from_name(&e.name);
         let name_c2 = name.clone();
         offset_ordering.push(name_c2);
     }
-    
+                
     return Ok(GXTStringTable {
-        data: main_table,
-        values_ordered_by_key: key_ordering,
-        values_ordered_by_offset: offset_ordering
+        data: table,
     });
 }
 
 impl GXTFile {
-    pub fn new(format: GXTFileFormat) -> GXTFile {
-        GXTFile {
-            format,
-            main_table: GXTStringTable { data: HashMap::new(), values_ordered_by_key: vec!(), values_ordered_by_offset: vec!() },
-            aux_tables: HashMap::new(),
-            tables_ordered_by_key: vec!(),
-            tables_ordered_by_offset: vec!(),
-        }
+    //pub fn new(format: GXTFileFormat) -> GXTFile {
+    //    GXTFile {
+    //        format,
+    //        main_table: GXTStringTable { data: IndexMap::new() },
+    //        aux_tables: IndexMap::new(),
+    //    }
+    //}
+    pub fn write_to_text (&self, file: &mut impl Write) -> Result<(),GXTError> {
+
+        let out_string = toml::to_string(self)?;
+        file.write(out_string.as_bytes())?;
+        Ok(())
     }
-    pub fn read_from_file (filename: &str) -> Result<GXTFile,std::io::Error> {
-        let f = File::open(filename)?;
-        let mut reader = BufReader::new(f);
+    pub fn read_from_text (file: &mut (impl Read + std::io::Seek)) -> Result<GXTFile,GXTError> {
+
+        let mut raw_data: String = Default::default();
+        file.read_to_string(&mut raw_data)?;
+        
+        let file: GXTFile = toml::from_str(&raw_data)?;
+        return Ok(file);
+    }
+    pub fn write_to_gxt (&self, _file: &mut impl Write) -> Result<(), GXTError> {
+        Err(GXTError::CompilationError("Not implemented yet".to_string()))
+    }
+    pub fn read_from_gxt (file: &mut (impl Read + std::io::Seek), ordering: &Option<ImportOrdering>) -> Result<GXTFile,GXTError> {
         
         let mut first_four_bytes: [u8; 4] = [0;4];
-        reader.read_exact(&mut first_four_bytes)?;
+        file.read_exact(&mut first_four_bytes)?;
 
         let format = if first_four_bytes == *b"TKEY" { //GTA3 format files do not have a TABL
             GXTFileFormat::Three
@@ -410,19 +505,17 @@ impl GXTFile {
         } else if first_four_bytes == *b"\x04\0\x10\0" { //SA, 16-bit characters
             GXTFileFormat::San16
         } else { 
-            return Err(std::io::Error::other("This GXT file does not match any known GTA 3 / VC / SA format."));
+            return Err(GXTError::ParsingError("This GXT file does not match any known GTA 3 / VC / SA format.".to_string()));
         };
-        reader.seek(std::io::SeekFrom::Start(0))?; //seek back to the start
+        file.seek(std::io::SeekFrom::Start(0))?; //seek back to the start
 
         match format {
             GXTFileFormat::Three => {
-                let tkey = gxt_read_tkey(&mut reader,&format,None,None)?;
+                let tkey = gxt_read_tkey(file,&format,None,None,&ordering)?;
                 return Ok(GXTFile {
-                    main_table: {gxt_read_tdat(&mut reader, &tkey, None, &format)?},
+                    main_table: {gxt_read_tdat(file, &tkey, None, &format,&ordering)?},
                     format: format,
-                    aux_tables: HashMap::new(),
-                    tables_ordered_by_key: vec!(),
-                    tables_ordered_by_offset: vec!(),
+                    aux_tables: IndexMap::new(),
                 });
             },
             GXTFileFormat::Vice | GXTFileFormat::San8 | GXTFileFormat::San16 => {
@@ -431,37 +524,38 @@ impl GXTFile {
                     GXTFileFormat::San8 | GXTFileFormat::San16 => {
                         let mut raw_version_number: [u8; 2] = [0;2];
                         let mut raw_character_size: [u8; 2] = [0;2];
-                        reader.read_exact(&mut raw_version_number)?;
-                        reader.read_exact(&mut raw_character_size)?;
+                        file.read_exact(&mut raw_version_number)?;
+                        file.read_exact(&mut raw_character_size)?;
                         let version_number = u16::from_le_bytes(raw_version_number);
                         let character_size = u16::from_le_bytes(raw_character_size);
                     
-                        if version_number != 4 {return Err(std::io::Error::other(format!("The GXT file has version {}, must have version 4",version_number) ));}
+                        if version_number != 4 {return Err(GXTError::ParsingError(format!("The GXT file has version {}, must have version 4",version_number) ));}
                         match character_size {
                             8 => (),
                             16 => (),
-                            _ => {return Err(std::io::Error::other(format!("The GXT file has character size {}, must have 8 or 16",character_size) ));}
+                            _ => {return Err(GXTError::ParsingError(format!("The GXT file has character size {}, must have 8 or 16",character_size) ));}
                         }
                     },
                     _ => {},
                 }
 
-                let tabl = gxt_read_tabl(&mut reader)?;
+                let tabl = gxt_read_tabl(file)?;
 
                 if !tabl.entries[0].is_main {
-                    return Err(std::io::Error::other("GXT File error: The first table must be MAIN"));
+                    return Err(GXTError::ParsingError("GXT File error: The first table must be MAIN".to_string()));
                 }
 
                 let _tkeys: Result<Vec<GXTInternalTKEY>,_> = 
                     tabl.entries.iter().map(|k| gxt_read_tkey(
-                        &mut reader,
+                        file,
                         &format,
                         match k.is_main { true => None, false => Some(k.name), },
-                        Some(k.offset)
+                        Some(k.offset),
+                        ordering
                         )).collect();
                 let tkeys = _tkeys?;
 
-                let tables_ordered_by_key: Vec<String> = tkeys[1..].iter().map(|k| match k.name {
+                let mut _key_ordering: Vec<String> = tkeys[1..].iter().map(|k| match k.name {
                     None => "".to_string(),
                     Some(n) => string_from_name(&GXTStringName::Text(n))
                 }).collect();
@@ -469,34 +563,40 @@ impl GXTFile {
                     None => "".to_string(),
                     Some(n) => string_from_name(&GXTStringName::Text(n))
                 }, k.offset)).collect();
+                _key_ordering.sort_by(|a,b| (a).cmp(&b));
                 _offset_ordering.sort_by(|a,b| (a.1).cmp(&b.1));
-                let tables_ordered_by_offset: Vec<String> = _offset_ordering.into_iter().map(|a| a.0).collect();
 
-                let mut aux_tables: HashMap<String, GXTStringTable> = HashMap::new();
+                let mut aux_tables: IndexMap<String, GXTStringTable> = IndexMap::new();
                 for e in &tkeys[1..] {
                     let name_string = match e.name {
-                        None => { return Err(std::io::Error::other("GXT File error: An auxiliary table must have a name!")); },
+                        None => { return Err(GXTError::ParsingError("An auxiliary table must have a name!".to_string())); },
                         Some(n) => string_from_name(&GXTStringName::Text(n))
                         };
 
-                    let new_table = gxt_read_tdat(&mut reader, &e, Some(e.offset), &format);
+                    let new_table = gxt_read_tdat(file, &e, Some(e.offset), &format, ordering);
                     match new_table {
                         Ok(t) => {
                             aux_tables.insert(name_string.clone(), t);
                         },
                         Err(x) => {
-                            return Err(std::io::Error::other(format!("Error while parsing table ({}): {}",&name_string, x)));
+                            return Err(GXTError::ParsingError(format!("Error while parsing table ({}): {}",&name_string, x)));
                         },
                     };
                 }
+
+                //match ordering {
+                //    None | Some(ImportOrdering::Native) => {},
+                //    Some(ImportOrdering::Key) => {
+                //    },
+                //    Some(ImportOrdering::Offset) => {
+                //    },
+                //}
                 
                 //eprintln!("Reading main table...");
                 return Ok(GXTFile {
-                    main_table: gxt_read_tdat(&mut reader, &tkeys[0], Some(tkeys[0].offset), &format)?,
+                    main_table: gxt_read_tdat(file, &tkeys[0], Some(tkeys[0].offset), &format, ordering)?,
                     format: format,
                     aux_tables,
-                    tables_ordered_by_key,
-                    tables_ordered_by_offset,
                 });
             },
         };
