@@ -6,18 +6,24 @@ and San Andreas.
 
 In addition, it is also my first experiment for coding in Rust.
 
-**gxter is a work in progress, and support for compilation of GXT files from
-text files is to be added in the future.**
+**gxter is a work in progress, and support for other useful options is to be added in the future.**
+
+The program has been proven capable of decompiling the English language text
+files from all three games supported, and compiling them back with small
+modifications. Further testing may be necessary to prove whether or not larger
+changes will work.
 
 ## Usage
 
-The program runs on the command line and works with either GXT files or flat
-text files. Use the following arguments to tell what the program should do:
+The program runs on the command line and works with either GXT files or
+TOML-based text files. Use the following arguments to tell what the program
+should do:
 
-- `-d`, `--decompile`: Read a GXT file, then output its contents on the screen.
+- `-d`, `--decompile`: Read a GXT file, then output its contents on the screen
+  or into a file specified by the `-o` parameter below.
   If this parameter is not specified, the program will assume the default
   operation is to compile a text file into a GXT file instead. The program will
-  determine the format based on the file's structure and act accordingly.
+  determine the GXT's format based on the file's structure and act accordingly.
 
 - `-K`, `--key-sort`: When decompiling, list strings in the order of their keys,
   according to the entries in TKEY.
@@ -31,15 +37,22 @@ text files. Use the following arguments to tell what the program should do:
   of lines, whereas offset-based ordering shows related lines closer to each
   other.
 
+- `-o`, `--output` (argument: file name): When decompiling, output the resulting
+  data into a TOML file specified by the argument's value, instead of on screen.
+  When compiling, save the GXT file under the following file name.
+
+The first parameter that doesn't fit these will be interpreted as the input file
+name.
+
 ## Text File Format
 
 The program currently supports the North American and Western European releases
-of GTA 3, Vice City and San Andreas. Strings in files will be read according to
-the character tables built into the program. Support for custom tables (to be
-used with, say, Japanese or Russian translations of the games) is to be added in
-the future.
+of GTA 3, Vice City and San Andreas. Strings in files will be read and written
+according to the character tables built into the program. Support for custom
+tables (to be used with, say, Japanese or Russian translations of the games) is
+to be added in the future.
 
-The text format is using TOML and has the following structure:
+The text format is using TOML as a base and has the following structure:
 ```
 format = "format"
 

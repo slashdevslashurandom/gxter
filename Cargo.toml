@@ -10,3 +10,5 @@ indexmap = {version = "2.12.1", features = ["serde"]}
 toml = {version = "0.9.8", features = ["preserve_order"]}
 serde = {version = "1.0.228", features = ["derive"]}
 thiserror = "2.0.17"
+hex = "0.4.3"
+crc32_light = "0.1.2"

@@ -57,8 +57,18 @@ fn main() {
         let mut file = BufReader::new(_f);
 
         let gxt = GXTFile::read_from_gxt(&mut file, &Some(data_ordering)).expect("Unable to decompile GXT file");
-        let mut stdout = io::stdout();
-        gxt.write_to_text(&mut stdout).unwrap();
+        
+        let output = matches.opt_str("o");
+        match output {
+            Some(ofn) => {
+                let mut outfile = File::create(ofn).expect("Unable to open output file");
+                gxt.write_to_text(&mut outfile).unwrap();
+            },
+            None => {
+                let mut stdout = io::stdout();
+                gxt.write_to_text(&mut stdout).unwrap();
+            }
+        }
         
     } else {
 
@@ -71,7 +81,7 @@ fn main() {
 
                 let gxt = GXTFile::read_from_text(&mut file).expect("Unable to decompile GXT file");
 
-                let mut outfile = File::open(ofn).expect("Unable to open output file");
+                let mut outfile = File::create(ofn).expect("Unable to open output file");
                 gxt.write_to_gxt(&mut outfile).unwrap();
             },
             None => {

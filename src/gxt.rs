@@ -1,3 +1,4 @@
+use crc32_light::crc32;
 use std::io::prelude::*;
 use thiserror::Error;
 use indexmap::IndexMap;
@@ -165,6 +166,58 @@ fn decode_character(character_value: u16, format: &GXTFileFormat) -> char {
     }
 }
 
+fn encode_character(character: char, format: &GXTFileFormat) -> Result<u16,GXTError> {
+    
+    let character_table: [char; 224] = match format {
+        GXTFileFormat::Three => GTA3_DEFAULT_CHARACTER_TABLE,
+        GXTFileFormat::Vice => VICE_DEFAULT_CHARACTER_TABLE,
+        GXTFileFormat::San8 | GXTFileFormat::San16 => SAN_DEFAULT_CHARACTER_TABLE,
+    };
+
+    let char_code = character as u32;
+    if char_code < 32 { //characters between 0 and 31
+        Ok(char_code.try_into().unwrap())
+    } else if (char_code >= 0xE020) && (char_code <= 0xE0FF) { //PUA-based code for 32~255
+        Ok((char_code - 0xE000).try_into().unwrap()) 
+    } else if (char_code >= 0xF0000) && (char_code <= 0xFFEFF) { //PUA-based code for 16-bit chars
+        Ok((char_code - 0xFEF00).try_into().unwrap())
+    } else {
+
+        for item in character_table.into_iter().enumerate() {
+            let (i, c) : (usize, char) = item;
+            if (c as u32) == char_code { return Ok(32 + (i as u16)); }
+        }
+        return Err(GXTError::CompilationError("Character with incompatible value found".to_string()));
+    }
+}
+
+fn encode_string(string: &str, format: &GXTFileFormat) -> Result<Vec<u8>,GXTError> {
+
+    let mut res: Vec<u8> = vec!();
+
+    match format {
+        GXTFileFormat::San8 => {
+            for e in string.chars() {
+                let widechar = encode_character(e, format)?;
+                if widechar >= 256 {
+                    return Err(GXTError::CompilationError("A SA 8-bit format GXT file may not have a character with code 256 or larger".to_string()));
+                }
+                res.push((widechar & 0xFF) as u8);
+            }
+            res.push(0); // null-terminator
+        },
+        GXTFileFormat::Three | GXTFileFormat::Vice | GXTFileFormat::San16 => {
+            for e in string.chars() {
+                let widechar: u16 = encode_character(e, format)?;
+                res.extend_from_slice(&u16::to_le_bytes(widechar));
+            }
+            res.extend_from_slice(&[0,0]); //null-terminator
+        },
+    };
+
+    Ok(res)
+}
+
 #[derive(Clone)]
 struct GXTInternalTKEY {
     name: Option<[u8;8]>, //None for GTA 3 or MAIN block in VC
@@ -192,7 +245,16 @@ struct GXTInternalTABL {
     entries: Vec<GXTInternalTABLEntry>, //array of names and offsets
 }
 
-// returns a sanitized string name from a raw 8-byte token name
+struct GXTCompilationTDAT {
+    // this buffer will store the actual contents of TDAT. it will be gradually filled with new
+    // strings
+    buffer: Vec<u8>,
+    // this hashmap will store offsets to each individual string and keep track of which ones
+    // already exist. the keys are string VALUES, not string names
+    offset_map: HashMap<String, usize>,
+}
+
+/// returns a sanitized string name from a raw 8-byte token name
 fn string_from_name(name: &GXTStringName) -> String {
 
     match name {
@@ -221,6 +283,52 @@ fn string_from_name(name: &GXTStringName) -> String {
         },
         GXTStringName::CRC32(c) => {
             return format!("#{c:08X}");
+        },
+    }
+}
+
+// used for both III / VC string names and table names
+fn string_to_name_basic(string: &str) -> Result<[u8;8],GXTError> {
+    let mut encoded_string: [u8;8] = [0;8];
+    if string.as_bytes().len() > 8 {
+        return Err(GXTError::CompilationError("String name can't be longer than 8 bytes".to_string()));
+    }
+    let len = string.as_bytes().len();
+
+    encoded_string[0..len].copy_from_slice(string.as_bytes());
+    return Ok(encoded_string);
+}
+
+fn string_to_name_crc32(string: &str) -> Result<u32,GXTError> {
+    // if the string resembles a CRC32, read the hexadecimal value!
+    if (string.chars().nth(0).unwrap() == '#') && (string.len() == 9) {
+        if !string.is_ascii() { return Err(GXTError::CompilationError("Invalid characters in hash-based string".to_string())); }
+        let mut hex_hash: [u8; 8] = [0;8];
+        hex_hash[0..8].copy_from_slice(&string.as_bytes()[1..9]);
+        let mut raw_hash: [u8; 4] = [0;4];
+        match hex::decode(hex_hash) {
+            Ok(v) => { 
+                raw_hash[0..4].copy_from_slice(&v.as_slice()[0..4]);
+            },
+            Err(_e) => { 
+                return Err(GXTError::CompilationError("Hash-based string is not a valid hex value".to_string()));
+            }
+        };
+        let hash: u32 = u32::from_be_bytes(raw_hash);
+        return Ok(hash);
+    } else {
+        // get a CRC32 hash from an existing string
+        return Ok(crc32(string.as_bytes()));
+    }
+}
+
+fn string_to_name(string: &str, format: &GXTFileFormat) -> Result<GXTStringName,GXTError> {
+    match format {
+        GXTFileFormat::Three | GXTFileFormat::Vice => { // string names are 8-byte sequences
+            return Ok(GXTStringName::Text(string_to_name_basic(string)?));
+        },
+        GXTFileFormat::San8 | GXTFileFormat::San16 => { // string names are CRC32s
+            return Ok(GXTStringName::CRC32(string_to_name_crc32(string)?));
         },
     }
 }
@@ -458,8 +566,196 @@ impl GXTFile {
         let file: GXTFile = toml::from_str(&raw_data)?;
         return Ok(file);
     }
-    pub fn write_to_gxt (&self, _file: &mut impl Write) -> Result<(), GXTError> {
-        Err(GXTError::CompilationError("Not implemented yet".to_string()))
+    fn create_tkey(&self, table: &IndexMap<String,String>, table_name: Option<&str>) -> Result<(GXTInternalTKEY,GXTCompilationTDAT), GXTError> {
+
+        let mut tdat = GXTCompilationTDAT {
+            buffer: vec!(),
+            offset_map: Default::default(),
+        };
+
+        let mut tkey = GXTInternalTKEY {
+            name: match table_name {
+                None => None,
+                Some(s) => Some(string_to_name_basic(s)?),
+            },
+            offset: 0,
+            size: 0,
+            entries: vec!(),
+        };
+
+        for (k,v) in table {
+            let offset = tdat.offset_map.get(v);
+            match offset {
+                Some(o) => {
+                    // String exists, we reuse the existing offset
+                    tkey.entries.push( GXTInternalTKEYEntry {
+                        name: string_to_name(k,&self.format)?,
+                        offset: *o as u32,
+                    });
+                },
+                None => {
+                    // String does not exist, we add a new one
+                    let cur_pos: usize = tdat.buffer.len();
+                    let _ = tdat.buffer.write(&encode_string(v,&self.format)?);
+                    
+                    tkey.entries.push( GXTInternalTKEYEntry {
+                        name: string_to_name(k,&self.format)?,
+                        offset: cur_pos as u32,
+                    });
+                },
+            };
+            tkey.size += match self.format {
+                GXTFileFormat::Three | GXTFileFormat::Vice => 12, //4 for offset, 8 for name
+                GXTFileFormat::San8 | GXTFileFormat::San16 => 8, //4 for offset, 4 for CRC32
+            };
+        }
+        match self.format {
+            GXTFileFormat::San8 | GXTFileFormat::San16 => {
+                // not described on gtamods.com wiki page, it seems like each successive TKEY/TDAT
+                // gets aligned across a 4-byte boundary -- in practice, this just means that
+                // each TDAT's length must be padded until it can divide by 4, because all the
+                // other blocks already have length divisible by 4
+                let filler: u32 = if (tdat.buffer.len() % 4) != 0 {
+                    4 - (u32::try_from(tdat.buffer.len()).unwrap() % 4)
+                } else { 0 };
+
+                for _ in 0..filler {
+                    tdat.buffer.push(0);
+                }
+            },
+            _ => {},
+        };
+        Ok((tkey,tdat))
+    }
+    fn write_tkey_to_gxt(&self, file: &mut impl Write, tkey: &GXTInternalTKEY) -> Result<(), GXTError> {
+        match tkey.name {
+            None => {},
+            Some(t) => {
+                file.write(&t)?;
+            },
+        }
+        file.write(b"TKEY")?;
+        file.write(&u32::to_le_bytes(tkey.size))?;
+        for e in &tkey.entries {
+            file.write(&u32::to_le_bytes(e.offset))?;
+            match self.format {
+                GXTFileFormat::Three | GXTFileFormat::Vice => {
+                    match e.name {
+                        GXTStringName::Text(t) => { file.write(&t)?; },
+                        GXTStringName::CRC32(_) => { return Err(GXTError::CompilationError("File of this format cannot have CRC32-based string names".to_string())); },
+                    }
+                },
+                GXTFileFormat::San8 | GXTFileFormat::San16 => {
+                    match e.name {
+                        GXTStringName::CRC32(h) => { file.write(&u32::to_le_bytes(h))?; },
+                        GXTStringName::Text(_) => { return Err(GXTError::CompilationError("File of this format cannot have text-based string names".to_string())); },
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+    pub fn write_to_gxt (&self, file: &mut impl Write) -> Result<(), GXTError> {
+
+        let (main_tkey,main_tdat) = self.create_tkey(&self.main_table, None)?;
+
+        let mut aux_data: Vec<(GXTInternalTKEY,GXTCompilationTDAT)> = vec!();
+
+        for (k,v) in &self.aux_tables {
+            aux_data.push(self.create_tkey(&v, Some(k))?);
+        }
+
+        match self.format {
+            GXTFileFormat::Three => {
+                self.write_tkey_to_gxt(file,&main_tkey)?;
+                file.write(b"TDAT")?;
+                file.write(&u32::to_le_bytes(main_tdat.buffer.len().try_into().unwrap()))?;
+                file.write(&main_tdat.buffer)?;
+                Ok(())
+            },
+            GXTFileFormat::Vice => {
+                file.write(b"TABL")?;
+                let tabl_size: u32 = 12u32 * (1 + u32::try_from(self.aux_tables.len()).unwrap());
+                file.write(&u32::to_le_bytes( tabl_size ))?;
+
+                let mut table_offset = tabl_size + 8;
+                file.write(b"MAIN\0\0\0\0")?;
+                file.write(&u32::to_le_bytes( table_offset ))?;
+                table_offset += 8 + main_tkey.size + 8 + u32::try_from(main_tdat.buffer.len()).unwrap();
+
+                for e in &aux_data {
+                    match e.0.name {
+                        Some(n) => {
+                            let table_name: [u8;8] = n;
+                            file.write(&table_name)?;
+                            file.write(&u32::to_le_bytes( table_offset ))?;
+                        },
+                        None => {
+                            return Err(GXTError::CompilationError("Auxiliary tables must have a name".to_string()));
+                        },
+                    }
+                    table_offset += 16 + e.0.size + 8 + u32::try_from(e.1.buffer.len()).unwrap();
+                }
+                
+                self.write_tkey_to_gxt(file,&main_tkey)?;
+                file.write(b"TDAT")?;
+                file.write(&u32::to_le_bytes(main_tdat.buffer.len().try_into().unwrap()))?;
+                file.write(&main_tdat.buffer)?;
+                
+                for e in &aux_data {
+                    self.write_tkey_to_gxt(file,&e.0)?;
+                    file.write(b"TDAT")?;
+                    file.write(&u32::to_le_bytes(e.1.buffer.len().try_into().unwrap()))?;
+                    file.write(&e.1.buffer)?;
+                }
+                Ok(())
+            },
+            GXTFileFormat::San8 | GXTFileFormat::San16 => {
+                file.write(&u16::to_le_bytes(4))?;
+                file.write(&u16::to_le_bytes( match self.format {
+                    GXTFileFormat::San8 => 8,
+                    GXTFileFormat::San16 => 16,
+                    _ => { return Err(GXTError::CompilationError("This GTA SA format is somehow not a GTA SA format?".to_string())); }
+                }))?;
+
+                file.write(b"TABL")?;
+                let tabl_size: u32 = 12u32 * (1 + u32::try_from(self.aux_tables.len()).unwrap());
+                file.write(&u32::to_le_bytes( tabl_size ))?;
+
+                let mut table_offset = 4 + tabl_size + 8;
+                file.write(b"MAIN\0\0\0\0")?;
+                file.write(&u32::to_le_bytes( table_offset ))?;
+                table_offset += 8 + main_tkey.size + 8 + u32::try_from(main_tdat.buffer.len()).unwrap();
+
+                for e in &aux_data {
+                    match e.0.name {
+                        Some(n) => {
+                            let table_name: [u8;8] = n;
+                            file.write(&table_name)?;
+                            file.write(&u32::to_le_bytes( table_offset ))?;
+                        },
+                        None => {
+                            return Err(GXTError::CompilationError("Auxiliary tables must have a name".to_string()));
+                        },
+                    }
+                    table_offset += 16 + e.0.size + 8 + u32::try_from(e.1.buffer.len()).unwrap();
+                }
+                
+                self.write_tkey_to_gxt(file,&main_tkey)?;
+                file.write(b"TDAT")?;
+                file.write(&u32::to_le_bytes(main_tdat.buffer.len().try_into().unwrap()))?;
+                file.write(&main_tdat.buffer)?;
+                
+                for e in &aux_data {
+                    self.write_tkey_to_gxt(file,&e.0)?;
+                    file.write(b"TDAT")?;
+                    file.write(&u32::to_le_bytes(e.1.buffer.len().try_into().unwrap()))?;
+                    file.write(&e.1.buffer)?;
+                }
+                Ok(())
+            },
+        }
+
     }
     pub fn read_from_gxt (file: &mut (impl Read + std::io::Seek), ordering: &Option<ImportOrdering>) -> Result<GXTFile,GXTError> {
         
