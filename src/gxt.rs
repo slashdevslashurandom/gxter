@@ -1,15 +1,22 @@
-use serde::ser::{Serialize, Serializer, SerializeMap};
 use std::io::prelude::*;
 use thiserror::Error;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 
 #[derive(serde::Serialize,serde::Deserialize,Clone)]
+/// Specifies one of the possible formats to be used when creating or loading a GXT file
 pub enum GXTFileFormat {
-    Three, //GTA 3, GTA VC Xbox
-    Vice, //GTA VC, LCS, VCS
-    San8, //GTA SA, IV (8-bit characters)
-    San16, //GTA SA, IV (16-bit characters)
+    /// GTA III, GTA: Vice City (Xbox)
+    Three,
+
+    /// GTA: Vice City, Liberty City Stories, Vice City Stories
+    Vice,
+
+    /// GTA: San Andreas, GTA IV (8-bit character data)
+    San8,
+
+    /// GTA IV (16-bit character data)
+    San16,
 }
 
 /// Specifies the order in which strings are to be stored, when read from a GXT file
@@ -24,22 +31,22 @@ pub enum ImportOrdering {
     Offset, 
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub enum GXTStringName {
-    Text([u8;8]),
-    CRC32(u32),
-}
-
+/// Describes the possible errors that can be returned by the program
 #[derive(Error, Debug)]
 pub enum GXTError {
+    /// Error during parsing of a GXT file
     #[error("GXT file parsing error: {0}")]
     ParsingError(String),
+    /// Error during compilation of a GXT file
     #[error("GXT file compilation error: {0}")]
     CompilationError(String),
+    /// Error from the I/O functions
     #[error("I/O error")]
     IOError(#[from] std::io::Error),
+    /// Error from the TOML serializer
     #[error("TOML serialization error")]
     TOMLSerError(#[from] toml::ser::Error),
+    /// Error from the TOML deserializer
     #[error("TOML deserialization error")]
     TOMLDeError(#[from] toml::de::Error),
 }
@@ -51,125 +58,110 @@ pub struct GXTFile {
     pub format: GXTFileFormat,
 
     /// Contains the "main" table. In GTA 3 files, this is the only table, whereas in GTA VC and SA
-    /// files, it is the first table in the file.
-    pub main_table: GXTStringTable,
+    /// files, it is the first table in the file. The key is the string's name (or hexadecimal hash
+    /// prefixed by #), the value is the actual string value, mapped to UTF-8.
+    pub main_table: IndexMap<String,String>,
 
     /// Contains all the "auxiliary" tables. This container must be empty when working with GTA 3
     /// files. The default ordering when decompiling a GXT file is to follow the list as
-    /// specified in the TABL section.
-    pub aux_tables: IndexMap<String,GXTStringTable>,
-}
-
-impl Serialize for GXTStringTable {
-    fn serialize <S> (&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut map = serializer.serialize_map(Some(self.data.len()))?;
-        for (k, v) in &self.data {
-            map.serialize_entry(k,v)?;
-        }
-        map.end()
-    }
-}
-
-// we use a custom serializer to provide custom ordering of keys, but we don't need that for
-// deserialization, so that one's derived instead
-#[derive(serde::Deserialize)]
-pub struct GXTStringTable {
-
-    /// Contains all the strings in the table. The key is the string's name, the value is the
-    /// string's contents. In GTA 3 and VC files, a string's name can be 8 bytes large at most. 
-    /// In GTA SA format files, string names are encoded using CRC32, and string
-    /// names retrieved from decompilation will be decoded as "#XXXXXXXX", where the letters X
-    /// represent hexadecimal digits of the CRC32 hash. As it is a 9-byte string, it should be
-    /// obvious that such a string can't be a "native" name.
-    /// 
-    #[serde(flatten)]
-    pub data: IndexMap<String,String>,
+    /// specified in the TABL section. The key is the table's name, the value is an IndexMap of
+    /// name/string values, same as in main_table.
+    pub aux_tables: IndexMap<String,IndexMap<String,String>>,
 }
 
 // -- internal structures, not recommended for use
+
+/// Describes how a string's name may be encoded in the GXT file
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+enum GXTStringName {
+    /// Text format (III / VC)
+    Text([u8;8]),
+    /// CRC32 format (SA)
+    CRC32(u32),
+}
 
 // these tables contain the default US/European character tables used by GTA 3, VC and SA.
 // the first 32 elements are skipped in all of them. the tables largely match ASCII, but
 // then add extra accented characters for EFIGS support or modify certain characters to add
 // icons for PS2 controller buttons or the HUD.
 //
-// empty strings in this array are treated by the decode_character function as an indication
-// that the character needs to be escaped using the \xAB or \uABCD notation.
+// null characters in this array are treated by the decode_character function as an indication
+// that the character needs to be escaped using the private use area.
 
-const GTA3_DEFAULT_CHARACTER_TABLE: [&str; 224] = [
-    " ", "!", "\"","#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
-    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ":", ";", "<", "=", ">", "?",
-    "™", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O",
-    "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "[", "\\","]", "^", "°",
-    "`", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o",
-    "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "❤", "◯",  "", "~",  "",
-    "À", "Á", "Â", "Ä", "Æ", "Ç", "È", "É", "Ê", "Ë", "Ì", "Í", "Î", "Ï", "Ò", "Ó",
-    "Ô", "Ö", "Ù", "Ú", "Û", "Ü", "ß", "à", "á", "â", "ä", "æ", "ç", "è", "é", "ê",
-    "ë", "ì", "í", "î", "ï", "ò", "ó", "ô", "ö", "ù", "ú", "û", "ü", "Ñ", "ñ", "¿",
-    "¡",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
-     "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
-     "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
-     "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
-     "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
+const GTA3_DEFAULT_CHARACTER_TABLE: [char; 224] = [
+    ' ', '!', '"', '#', '$', '%', '&','\'', '(', ')', '*', '+', ',', '-', '.', '/',
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?',
+    '™', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
+    'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\',']', '^', '°',
+    '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
+    'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '❤', '◯','\0', '~','\0',
+    'À', 'Á', 'Â', 'Ä', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï', 'Ò', 'Ó',
+    'Ô', 'Ö', 'Ù', 'Ú', 'Û', 'Ü', 'ß', 'à', 'á', 'â', 'ä', 'æ', 'ç', 'è', 'é', 'ê',
+    'ë', 'ì', 'í', 'î', 'ï', 'ò', 'ó', 'ô', 'ö', 'ù', 'ú', 'û', 'ü', 'Ñ', 'ñ', '¿',
+    '¡','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
+   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
+   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
+   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
+   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
 ];
 
-const VICE_DEFAULT_CHARACTER_TABLE: [&str; 224] = [
-    " ", "!", "\"","#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
-    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ":", ";", "🛡", "=", "★", "?",
-    "™", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O",
-    "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "[", "\\","]", "¡", "°",
-    "`", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o",
-    "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "❤", "|", "}", "~",  "",
-    "À", "Á", "Â", "Ä", "Æ", "Ç", "È", "É", "Ê", "Ë", "Ì", "Í", "Î", "Ï", "Ò", "Ó",
-    "Ô", "Ö", "Ù", "Ú", "Û", "Ü", "ß", "à", "á", "â", "ä", "æ", "ç", "è", "é", "ê",
-    "ë", "ì", "í", "î", "ï", "ò", "ó", "ô", "ö", "ù", "ú", "û", "ü", "Ñ", "ñ", "¿",
-     "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
-     "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
-     "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
-     "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
-     "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",  "",
+const VICE_DEFAULT_CHARACTER_TABLE: [char; 224] = [
+    ' ', '!', '"', '#', '$', '%', '&','\'', '(', ')', '*', '+', ',', '-', '.', '/',
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '🛡', '=', '★', '?',
+    '™', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
+    'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\',']', '¡', '°',
+    '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
+    'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '❤', '|', '}', '~','\0',
+    'À', 'Á', 'Â', 'Ä', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï', 'Ò', 'Ó',
+    'Ô', 'Ö', 'Ù', 'Ú', 'Û', 'Ü', 'ß', 'à', 'á', 'â', 'ä', 'æ', 'ç', 'è', 'é', 'ê',
+    'ë', 'ì', 'í', 'î', 'ï', 'ò', 'ó', 'ô', 'ö', 'ù', 'ú', 'û', 'ü', 'Ñ', 'ñ', '¿',
+   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
+   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
+   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
+   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
+   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
 ]; //the additional letter characters are temporarily disabled, until i can figure out how to
    //separate them from the regular ones
 
-const SAN_DEFAULT_CHARACTER_TABLE: [&str; 224] = [ //this is just the CP1252 codepage
-    " ", "!", "\"","#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
-    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ":", ";", "<", "=", ">", "?",
-    "@", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O",
-    "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "[", "\\","]", "^", "_",
-    "`", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o",
-    "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z", "{", "|", "}", "~",  "",
-    "€",  "", "‚", "ƒ", "„", "…", "†", "‡", "ˆ", "‰", "Š", "‹", "Œ",  "", "Ž",  "",
-     "", "‘", "’", "“", "”", "•", "–", "—", "˜", "™", "š", "›", "œ",  "", "ž", "Ÿ",
-    " ", "¡", "¢", "£", "¤", "¥", "¦", "§", "¨", "©", "ª", "«", "¬", "­", "®", "¯",
-    "°", "±", "²", "³", "´", "µ", "¶", "·", "¸", "¹", "º", "»", "¼", "½", "¾", "¿",
-    "À", "Á", "Â", "Ã", "Ä", "Å", "Æ", "Ç", "È", "É", "Ê", "Ë", "Ì", "Í", "Î", "Ï",
-    "Ð", "Ñ", "Ò", "Ó", "Ô", "Õ", "Ö", "×", "Ø", "Ù", "Ú", "Û", "Ü", "Ý", "Þ", "ß",
-    "à", "á", "â", "ã", "ä", "å", "æ", "ç", "è", "é", "ê", "ë", "ì", "í", "î", "ï",
-    "ð", "ñ", "ò", "ó", "ô", "õ", "ö", "÷", "ø", "ù", "ú", "û", "ü", "ý", "þ", "ÿ",
+const SAN_DEFAULT_CHARACTER_TABLE: [char; 224] = [ //this is just the CP1252 codepage
+    ' ', '!', '"', '#', '$', '%', '&','\'', '(', ')', '*', '+', ',', '-', '.', '/',
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?',
+    '@', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
+    'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\',']', '^', '_',
+    '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
+    'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '|', '}', '~','\0',
+    '€','\0', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ','\0', 'Ž','\0',
+   '\0', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ','\0', 'ž', 'Ÿ',
+    ' ', '¡', '¢', '£', '¤', '¥', '¦', '§', '¨', '©', 'ª', '«', '¬', '­', '®', '¯',
+    '°', '±', '²', '³', '´', 'µ', '¶', '·', '¸', '¹', 'º', '»', '¼', '½', '¾', '¿',
+    'À', 'Á', 'Â', 'Ã', 'Ä', 'Å', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï',
+    'Ð', 'Ñ', 'Ò', 'Ó', 'Ô', 'Õ', 'Ö', '×', 'Ø', 'Ù', 'Ú', 'Û', 'Ü', 'Ý', 'Þ', 'ß',
+    'à', 'á', 'â', 'ã', 'ä', 'å', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï',
+    'ð', 'ñ', 'ò', 'ó', 'ô', 'õ', 'ö', '÷', 'ø', 'ù', 'ú', 'û', 'ü', 'ý', 'þ', 'ÿ',
 ];
 
-fn decode_character(character_value: u16, format: &GXTFileFormat) -> String {
+fn decode_character(character_value: u16, format: &GXTFileFormat) -> char {
 
-    let character_table: [&str; 224] = match format {
+    let character_table: [char; 224] = match format {
         GXTFileFormat::Three => GTA3_DEFAULT_CHARACTER_TABLE,
         GXTFileFormat::Vice => VICE_DEFAULT_CHARACTER_TABLE,
         GXTFileFormat::San8 | GXTFileFormat::San16 => SAN_DEFAULT_CHARACTER_TABLE,
     };
 
-    if (character_value < 32) || (usize::from(character_value) >= 32 + character_table.len()) {
-        let escaped = format!("\\x{character_value:04x}"); //replace unavailable characters
-        return escaped;
+    if character_value < 32 {
+        char::from_u32(character_value.into()).unwrap()
     } else {
-        let character = character_table[usize::from(character_value) - 32];
-        if (character == "\\") || (character.len() == 0) {
-            let escaped = format!("\\u{character_value:04x}"); //replace unavailable characters
-            return escaped;
+
+        let default_value = if character_value >= 0x100 {
+            char::from_u32(0xFEF00 + (character_value as u32) ).unwrap()
         } else {
-            return character.to_string();
-        }
+            char::from_u32(0xE000 + character_value as u32).unwrap()
+        };
+
+        if ((character_value - 32) as usize) < character_table.len() {
+            let table_value = character_table[usize::from(character_value) - 32];
+            if table_value != '\0' { table_value } else { default_value }
+        } else { default_value }
     }
 }
 
@@ -221,16 +213,7 @@ fn string_from_name(name: &GXTStringName) -> String {
                 Some(l) => {
                     let mut ret:String = String::new();
                     for i in 0..=l { //inclusive range!
-                        let c = t[i];
-                        
-                        // =, [ and ] are escaped in order to avoid collisions with formatting
-                        if (c >= b' ') && (c < 127) && (c != b'=') && (c != b'[') && (c != b']') {
-                            ret.push(c as char);
-                        } else if c == b'\\' {
-                            ret.push_str("\\\\");
-                        } else {
-                            ret.push_str(&format!("\\x{:02x}", c));
-                        }
+                        ret.push(t[i] as char);
                     }
                     return ret;
                 },
@@ -284,13 +267,7 @@ fn gxt_read_tabl(file: &mut (impl Read + std::io::Seek)) -> Result<GXTInternalTA
 fn gxt_read_tkey(file: &mut (impl Read + std::io::Seek), format: &GXTFileFormat, name: Option<[u8;8]>, offset:Option<u32>, ordering: &Option<ImportOrdering>) -> Result<GXTInternalTKEY,GXTError> {
     //name should be None for GTA3 and VC's MAIN entry
 
-    //eprintln!("Reading the {}...", match name {
-    //    None => "main table".to_string(),
-    //    Some(t) => "auxiliary table ".to_owned() + &string_from_name(&t),
-    //});
-
     file.seek(std::io::SeekFrom::Start(offset.unwrap_or(0).into()))?;
-    //eprintln!("Current position: {:0x}",file.stream_position()?);
 
     let actual_name: Option<[u8;8]> = match name {
         None => None,
@@ -365,7 +342,7 @@ fn gxt_read_tkey(file: &mut (impl Read + std::io::Seek), format: &GXTFileFormat,
     return Ok(tkey);
 }
 
-fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY, tkey_offset: Option<u32>, format: &GXTFileFormat, ordering: &Option<ImportOrdering>) -> Result<GXTStringTable,GXTError> {
+fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY, tkey_offset: Option<u32>, format: &GXTFileFormat, ordering: &Option<ImportOrdering>) -> Result<IndexMap<String,String>,GXTError> {
     
     let mut tkey_data_sorted = tkey.entries.clone();
     tkey_data_sorted.sort_by(|a,b| a.offset.cmp(&b.offset));
@@ -377,7 +354,6 @@ fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY,
         None => 0, //MAIN block doesn't have the extra 8 bytes at the start
         Some(_) => 8}; //named blocks do
 
-    //eprintln!("TDAT offset is {tdat_offset:0x}");
     file.seek(std::io::SeekFrom::Start(tdat_offset.into()))?;
 
     let mut magic_number: [u8; 4] = [0;4];
@@ -410,7 +386,7 @@ fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY,
                     file.read_exact(&mut raw_2byte_sequence)?;
                     let character_value = raw_2byte_sequence[0] as u16 + 256*(raw_2byte_sequence[1] as u16);
                     if character_value == 0 { break; }
-                    value.push_str(&decode_character(character_value,&format));
+                    value.push(decode_character(character_value,&format));
                 };
             },
             GXTFileFormat::San8 => {
@@ -418,7 +394,7 @@ fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY,
                 loop {
                     file.read_exact(&mut raw_byte)?;
                     if raw_byte[0] == 0 { break; }
-                    value.push_str(&decode_character(raw_byte[0].into(),&format));
+                    value.push(decode_character(raw_byte[0].into(),&format));
                 };
             },
             GXTFileFormat::San16 => {
@@ -428,7 +404,7 @@ fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY,
                     file.read_exact(&mut raw_2byte_sequence)?;
                     let character_value = raw_2byte_sequence[0] as u16;
                     if character_value == 0 { break; }
-                    value.push_str(&decode_character(character_value,&format));
+                    value.push(decode_character(character_value,&format));
                 };
             },
         }
@@ -457,9 +433,7 @@ fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY,
         offset_ordering.push(name_c2);
     }
                 
-    return Ok(GXTStringTable {
-        data: table,
-    });
+    return Ok(table);
 }
 
 impl GXTFile {
@@ -562,7 +536,7 @@ impl GXTFile {
                 _key_ordering.sort_by(|a,b| (a).cmp(&b));
                 _offset_ordering.sort_by(|a,b| (a.1).cmp(&b.1));
 
-                let mut aux_tables: IndexMap<String, GXTStringTable> = IndexMap::new();
+                let mut aux_tables: IndexMap<String, IndexMap<String,String>> = IndexMap::new();
                 for e in &tkeys[1..] {
                     let name_string = match e.name {
                         None => { return Err(GXTError::ParsingError("An auxiliary table must have a name!".to_string())); },
