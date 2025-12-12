@@ -1,0 +1,38 @@
+# This file is an attempt at matching the encoding used by the bootleg Russian
+# translation of GTA: San Andreas by "Tycoon", the most commonly used translation
+# back in the 2000s. This translation only features uppercase characters, but uses 
+# post-ASCII characters to preserve Latin characters as much as possible.
+[decode_table]
+65 = 'А' # latin A
+128 = 'Б'
+129 = 'В'
+130 = 'Г'
+131 = 'Д'
+69 = 'Е' #latin E
+149 = 'Ж'
+138 = 'З'
+139 = 'И'
+140 = 'Й'
+75 = 'К' #latin K
+132 = 'Л'
+77 = 'М' #latin M
+133 = 'Н'
+79 = 'О' #latin O
+150 = 'П'
+80 = 'Р' #latin P
+67 = 'С' #latin С
+84 = 'Т' #latin T
+137 = 'У'
+142 = 'Ф'
+88 = 'Х' #latin X
+134 = 'Ц'
+135 = 'Ч'
+136 = 'Щ'
+141 = 'Ш'
+143 = 'Ъ'
+144 = 'Ы'
+145 = 'Ь'
+146 = 'Э'
+147 = 'Ю'
+148 = 'Я'
+
