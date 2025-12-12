@@ -5,34 +5,35 @@
 # both Latin and Cyrillic characters -- these are given their Cyrillic mappings
 # in this table.
 [decode_table]
-97 = 'а'
-99 = 'с'
-101 = 'е'
-104 = 'н'
-107 = 'к'
-109 = 'м'
-111 = 'о'
-112 = 'р'
-116 = 'т'
-120 = 'х'
-121 = 'у'
+97 = 'а' # Latin a
 151 = 'б'
 152 = 'в'
 153 = 'г'
+175 = 'д'
+101 = 'е' # Latin e
 154 = 'ж'
-155 = 'ю'
+171 = 'з'
 156 = 'и'
+174 = 'й'
+107 = 'к' # Latin k
 157 = 'л'
+109 = 'м' # Latin m
+104 = 'н' # Latin h
+111 = 'о' # Latin o
 158 = 'п'
+112 = 'р' # Latin p
+99 = 'с' # Latin c
+116 = 'т' # Latin t
+121 = 'у' # Latin y
 159 = 'ф'
+120 = 'х' # Latin x
 160 = 'ц'
 165 = 'ч'
 166 = 'ш'
 167 = 'щ'
-168 = 'ь'
+# There is no 'ъ' in the translated game's fonts.
 169 = 'ы'
+168 = 'ь'
 170 = 'э'
-171 = 'з'
+155 = 'ю'
 172 = 'я'
-174 = 'й'
-175 = 'д'

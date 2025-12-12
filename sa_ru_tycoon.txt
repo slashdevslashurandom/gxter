@@ -1,7 +1,7 @@
 # This file is an attempt at matching the encoding used by the bootleg Russian
 # translation of GTA: San Andreas by "Tycoon", the most commonly used translation
 # back in the 2000s. This translation only features uppercase characters, but uses 
-# post-ASCII characters to preserve Latin characters as much as possible.
+# post-ASCII codes to preserve Latin characters' appearance as much as possible.
 [decode_table]
 65 = 'А' # latin A
 128 = 'Б'
