@@ -222,7 +222,7 @@ fn encode_character(character: char, format: &GXTFileFormat, custom_table: &Opti
         if let Some(v) = custom_table {
             let table_value: Option<&u16> = v.encode_table.get(&character);
             if let Some(i) = table_value {
-                return Ok(*i);
+                if *i != 0 {return Ok(*i)};
             }
         }
 
