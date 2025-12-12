@@ -78,13 +78,13 @@ fn main() {
         };
 
         for (k,v) in gxt.main_table {
-            println!("{} = {}",k,gxt_pretty::pretty_print(&v,&gxt.format).unwrap());
+            gxt_pretty::pretty_print(&k,&v,&gxt.format).unwrap();
         }
 
         for (k,v) in gxt.aux_tables {
             println!("[{k}]");
             for (k,v) in v {
-                println!("{} = {}",k,gxt_pretty::pretty_print(&v,&gxt.format).unwrap());
+                gxt_pretty::pretty_print(&k,&v,&gxt.format).unwrap();
             }
             println!("");
         }
