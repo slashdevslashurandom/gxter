@@ -72,6 +72,25 @@ pub struct GXTFile {
     pub aux_tables: IndexMap<String,IndexMap<String,String>>,
 }
 
+/// This structure contains a custom character table that can be used to convert between GXT and
+/// text formats for non-NA/EFIGS versions of the games.
+#[derive(serde::Serialize,serde::Deserialize)]
+pub struct GXTCharacterTable {
+
+    /// This is the primary table. It will be used when decoding characters from GXT to figure out,
+    /// which of them needs to be written into the TOML file.
+    pub decode_table: HashMap<u16, char>,
+
+    /// This is the encode table, used to determine how characters might be encoded. The reason for
+    /// the two tables to exist is that due to how some of games' translations are unofficial, they
+    /// may reuse the same character code for two different similar-looking characters, like the
+    /// digit "3" for the Cyrillic letter "З" or the latin "k" for the Cyrillic "к" -- but when
+    /// editing a text file, it is best to allow both to be resolved into the same character when
+    /// exporting as GXT. If not specified, the encode table will be built from the decode table.
+    #[serde(default)]
+    pub encode_table: HashMap<char, u16>,
+}
+
 /// helper function used to avoid serializing aux_tables if there are none
 fn aux_tables_are_empty(table: &IndexMap<String,IndexMap<String,String>>) -> bool {
     return table.len() == 0;
@@ -148,7 +167,7 @@ const SAN_DEFAULT_CHARACTER_TABLE: [char; 224] = [ //this is just the CP1252 cod
     'ð', 'ñ', 'ò', 'ó', 'ô', 'õ', 'ö', '÷', 'ø', 'ù', 'ú', 'û', 'ü', 'ý', 'þ', 'ÿ',
 ];
 
-fn decode_character(character_value: u16, format: &GXTFileFormat) -> char {
+fn decode_character(character_value: u16, format: &GXTFileFormat, custom_table: &Option<GXTCharacterTable>) -> char {
 
     let character_table: [char; 224] = match format {
         GXTFileFormat::Three => GTA3_DEFAULT_CHARACTER_TABLE,
@@ -166,6 +185,16 @@ fn decode_character(character_value: u16, format: &GXTFileFormat) -> char {
             char::from_u32(0xE000 + character_value as u32).unwrap()
         };
 
+        match custom_table {
+            Some(v) => {
+                let table_value: Option<&char> = v.decode_table.get(&character_value);
+                if let Some(i) = table_value {
+                    return *i;
+                }
+            },
+            None => {},
+        }
+
         if ((character_value - 32) as usize) < character_table.len() {
             let table_value = character_table[usize::from(character_value) - 32];
             if table_value != '\0' { table_value } else { default_value }
@@ -173,7 +202,7 @@ fn decode_character(character_value: u16, format: &GXTFileFormat) -> char {
     }
 }
 
-fn encode_character(character: char, format: &GXTFileFormat) -> Result<u16,GXTError> {
+fn encode_character(character: char, format: &GXTFileFormat, custom_table: &Option<GXTCharacterTable>) -> Result<u16,GXTError> {
     
     let character_table: [char; 224] = match format {
         GXTFileFormat::Three => GTA3_DEFAULT_CHARACTER_TABLE,
@@ -189,6 +218,13 @@ fn encode_character(character: char, format: &GXTFileFormat) -> Result<u16,GXTEr
     } else if (char_code >= 0xF0000) && (char_code <= 0xFFEFF) { //PUA-based code for 16-bit chars
         Ok((char_code - 0xFEF00).try_into().unwrap())
     } else {
+        
+        if let Some(v) = custom_table {
+            let table_value: Option<&u16> = v.encode_table.get(&character);
+            if let Some(i) = table_value {
+                return Ok(*i);
+            }
+        }
 
         for item in character_table.into_iter().enumerate() {
             let (i, c) : (usize, char) = item;
@@ -198,14 +234,14 @@ fn encode_character(character: char, format: &GXTFileFormat) -> Result<u16,GXTEr
     }
 }
 
-fn encode_string(string: &str, format: &GXTFileFormat) -> Result<Vec<u8>,GXTError> {
+fn encode_string(string: &str, format: &GXTFileFormat, custom_table: &Option<GXTCharacterTable>) -> Result<Vec<u8>,GXTError> {
 
     let mut res: Vec<u8> = vec!();
 
     match format {
         GXTFileFormat::San8 => {
             for e in string.chars() {
-                let widechar = encode_character(e, format)?;
+                let widechar = encode_character(e, format, custom_table)?;
                 if widechar >= 256 {
                     return Err(GXTError::CompilationError("A SA 8-bit format GXT file may not have a character with code 256 or larger".to_string()));
                 }
@@ -215,7 +251,7 @@ fn encode_string(string: &str, format: &GXTFileFormat) -> Result<Vec<u8>,GXTErro
         },
         GXTFileFormat::Three | GXTFileFormat::Vice | GXTFileFormat::San16 => {
             for e in string.chars() {
-                let widechar: u16 = encode_character(e, format)?;
+                let widechar: u16 = encode_character(e, format, custom_table)?;
                 res.extend_from_slice(&u16::to_le_bytes(widechar));
             }
             res.extend_from_slice(&[0,0]); //null-terminator
@@ -223,6 +259,23 @@ fn encode_string(string: &str, format: &GXTFileFormat) -> Result<Vec<u8>,GXTErro
     };
 
     Ok(res)
+}
+
+pub fn read_custom_table(file: &mut (impl Read + std::io::Seek + std::io::BufRead)) -> Result<GXTCharacterTable,GXTError> {
+
+    let mut raw_data: String = Default::default();
+    file.read_to_string(&mut raw_data)?;
+        
+    let mut table: GXTCharacterTable = toml::from_str(&raw_data)?;
+
+    // If there's no encode table, build one using the decode table
+    if table.encode_table.len() == 0 {
+        for (k,v) in &table.decode_table {
+            table.encode_table.entry(*v).or_insert(*k);
+        }
+    }
+
+    return Ok(table);
 }
 
 #[derive(Clone)]
@@ -457,7 +510,7 @@ fn gxt_read_tkey(file: &mut (impl Read + std::io::Seek), format: &GXTFileFormat,
     return Ok(tkey);
 }
 
-fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY, tkey_offset: Option<u32>, format: &GXTFileFormat, ordering: &Option<ImportOrdering>) -> Result<IndexMap<String,String>,GXTError> {
+fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY, tkey_offset: Option<u32>, format: &GXTFileFormat, ordering: &Option<ImportOrdering>, custom_table: &Option<GXTCharacterTable>) -> Result<IndexMap<String,String>,GXTError> {
     
     let mut tkey_data_sorted = tkey.entries.clone();
     tkey_data_sorted.sort_by(|a,b| a.offset.cmp(&b.offset));
@@ -501,7 +554,7 @@ fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY,
                     file.read_exact(&mut raw_2byte_sequence)?;
                     let character_value = raw_2byte_sequence[0] as u16 + 256*(raw_2byte_sequence[1] as u16);
                     if character_value == 0 { break; }
-                    value.push(decode_character(character_value,&format));
+                    value.push(decode_character(character_value,&format,custom_table));
                 };
             },
             GXTFileFormat::San8 => {
@@ -509,7 +562,7 @@ fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY,
                 loop {
                     file.read_exact(&mut raw_byte)?;
                     if raw_byte[0] == 0 { break; }
-                    value.push(decode_character(raw_byte[0].into(),&format));
+                    value.push(decode_character(raw_byte[0].into(),&format,custom_table));
                 };
             },
             GXTFileFormat::San16 => {
@@ -519,7 +572,7 @@ fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY,
                     file.read_exact(&mut raw_2byte_sequence)?;
                     let character_value = raw_2byte_sequence[0] as u16;
                     if character_value == 0 { break; }
-                    value.push(decode_character(character_value,&format));
+                    value.push(decode_character(character_value,&format,custom_table));
                 };
             },
         }
@@ -573,7 +626,7 @@ impl GXTFile {
         let file: GXTFile = toml::from_str(&raw_data)?;
         return Ok(file);
     }
-    fn create_tkey(&self, table: &IndexMap<String,String>, table_name: Option<&str>) -> Result<(GXTInternalTKEY,GXTCompilationTDAT), GXTError> {
+    fn create_tkey(&self, table: &IndexMap<String,String>, table_name: Option<&str>, custom_table: &Option<GXTCharacterTable>) -> Result<(GXTInternalTKEY,GXTCompilationTDAT), GXTError> {
 
         let mut tdat = GXTCompilationTDAT {
             buffer: vec!(),
@@ -603,7 +656,7 @@ impl GXTFile {
                 None => {
                     // String does not exist, we add a new one
                     let cur_pos: usize = tdat.buffer.len();
-                    let _ = tdat.buffer.write(&encode_string(v,&self.format)?);
+                    let _ = tdat.buffer.write(&encode_string(v,&self.format,custom_table)?);
                     
                     tkey.entries.push( GXTInternalTKEYEntry {
                         name: string_to_name(k,&self.format)?,
@@ -662,14 +715,14 @@ impl GXTFile {
         }
         Ok(())
     }
-    pub fn write_to_gxt (&self, file: &mut impl Write) -> Result<(), GXTError> {
+    pub fn write_to_gxt (&self, file: &mut impl Write, custom_table: &Option<GXTCharacterTable>) -> Result<(), GXTError> {
 
-        let (main_tkey,main_tdat) = self.create_tkey(&self.main_table, None)?;
+        let (main_tkey,main_tdat) = self.create_tkey(&self.main_table, None, custom_table)?;
 
         let mut aux_data: Vec<(GXTInternalTKEY,GXTCompilationTDAT)> = vec!();
 
         for (k,v) in &self.aux_tables {
-            aux_data.push(self.create_tkey(&v, Some(k))?);
+            aux_data.push(self.create_tkey(&v, Some(k), custom_table)?);
         }
 
         match self.format {
@@ -764,7 +817,7 @@ impl GXTFile {
         }
 
     }
-    pub fn read_from_gxt (file: &mut (impl Read + std::io::Seek), ordering: &Option<ImportOrdering>) -> Result<GXTFile,GXTError> {
+    pub fn read_from_gxt (file: &mut (impl Read + std::io::Seek), ordering: &Option<ImportOrdering>, custom_table: &Option<GXTCharacterTable>) -> Result<GXTFile,GXTError> {
         
         let mut first_four_bytes: [u8; 4] = [0;4];
         file.read_exact(&mut first_four_bytes)?;
@@ -786,7 +839,7 @@ impl GXTFile {
             GXTFileFormat::Three => {
                 let tkey = gxt_read_tkey(file,&format,None,None,&ordering)?;
                 return Ok(GXTFile {
-                    main_table: {gxt_read_tdat(file, &tkey, None, &format,&ordering)?},
+                    main_table: {gxt_read_tdat(file, &tkey, None, &format,&ordering,custom_table)?},
                     format: format,
                     aux_tables: IndexMap::new(),
                 });
@@ -846,7 +899,7 @@ impl GXTFile {
                         Some(n) => string_from_name(&GXTStringName::Text(n))
                         };
 
-                    let new_table = gxt_read_tdat(file, &e, Some(e.offset), &format, ordering);
+                    let new_table = gxt_read_tdat(file, &e, Some(e.offset), &format, ordering, custom_table);
                     match new_table {
                         Ok(t) => {
                             aux_tables.insert(name_string.clone(), t);
@@ -867,7 +920,7 @@ impl GXTFile {
                 
                 //eprintln!("Reading main table...");
                 return Ok(GXTFile {
-                    main_table: gxt_read_tdat(file, &tkeys[0], Some(tkeys[0].offset), &format, ordering)?,
+                    main_table: gxt_read_tdat(file, &tkeys[0], Some(tkeys[0].offset), &format, ordering, custom_table)?,
                     format: format,
                     aux_tables,
                 });

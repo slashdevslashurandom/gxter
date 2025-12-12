@@ -18,6 +18,7 @@ fn main() {
     opts.optflag("d","decompile","decompile a .gxt file into a text file, rather than the other way around");
     opts.optflag("p","pretty-print","print the contents of a GXT or text file with color formatting");
     opts.optopt("o","output","output file name","NAME");
+    opts.optopt("c","character-table","custom character table","FILENAME");
     opts.optflag("K","key-sort","arrange strings in the same order as their keys");
     opts.optflag("O","offset-sort","arrange strings in the same order as their data locations");
     opts.optflag("h","help","print this help menu");
@@ -52,13 +53,23 @@ fn main() {
     } else {
         gxter::ImportOrdering::Native
     };
+
+    let custom_table: Option<gxter::GXTCharacterTable> = match matches.opt_str("character-table") {
+        Some(name) => {
+            let _f = File::open(&name).expect("Unable to open character table file");
+            let mut file = BufReader::new(_f);
+
+            Some(gxter::read_custom_table(&mut file).unwrap())
+        },
+        None => None,
+    };
     
     if do_pretty_print {
         let gxt = if decompile {
             let _f = File::open(&input_filename).expect("Unable to open GXT file");
             let mut file = BufReader::new(_f);
 
-            GXTFile::read_from_gxt(&mut file, &Some(data_ordering)).expect("Unable to decompile GXT file")
+            GXTFile::read_from_gxt(&mut file, &Some(data_ordering), &custom_table).expect("Unable to decompile GXT file")
         } else {
             let _f = File::open(&input_filename).expect("Unable to open text file");
             let mut file = BufReader::new(_f);
@@ -83,7 +94,7 @@ fn main() {
         let _f = File::open(&input_filename).expect("Unable to open GXT file");
         let mut file = BufReader::new(_f);
 
-        let gxt = GXTFile::read_from_gxt(&mut file, &Some(data_ordering)).expect("Unable to decompile GXT file");
+        let gxt = GXTFile::read_from_gxt(&mut file, &Some(data_ordering), &custom_table).expect("Unable to decompile GXT file");
         
         let output = matches.opt_str("o");
         match output {
@@ -109,7 +120,7 @@ fn main() {
                 let gxt = GXTFile::read_from_text(&mut file).expect("Unable to decompile GXT file");
 
                 let mut outfile = File::create(ofn).expect("Unable to open output file");
-                gxt.write_to_gxt(&mut outfile).unwrap();
+                gxt.write_to_gxt(&mut outfile, &custom_table).unwrap();
             },
             None => {
                 eprintln!("No output file name specified!");

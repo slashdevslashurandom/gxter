@@ -1,0 +1,38 @@
+# This file is an attempt at matching the encoding used by the bootleg Russian
+# translation of GTA: Vice City by "Tycoon", the most commonly used translation
+# back in the 2000s. A feature of this translation is that it exclusively uses
+# lowercase letters in Russian text. Some of the letters pull double duty as
+# both Latin and Cyrillic characters -- these are given their Cyrillic mappings
+# in this table.
+[decode_table]
+97 = 'а'
+99 = 'с'
+101 = 'е'
+104 = 'н'
+107 = 'к'
+109 = 'м'
+111 = 'о'
+112 = 'р'
+116 = 'т'
+120 = 'х'
+121 = 'у'
+151 = 'б'
+152 = 'в'
+153 = 'г'
+154 = 'ж'
+155 = 'ю'
+156 = 'и'
+157 = 'л'
+158 = 'п'
+159 = 'ф'
+160 = 'ц'
+165 = 'ч'
+166 = 'ш'
+167 = 'щ'
+168 = 'ь'
+169 = 'ы'
+170 = 'э'
+171 = 'з'
+172 = 'я'
+174 = 'й'
+175 = 'д'

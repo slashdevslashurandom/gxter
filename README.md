@@ -19,6 +19,10 @@ The program runs on the command line and works with either GXT files or
 TOML-based text files. Use the following arguments to tell what the program
 should do:
 
+- `-c`, `--character-table`: Use a custom "character table" in order to convert
+  between the game's internal encoding and UTF-8. This option is useful for
+  non-standard releases of the games.
+
 - `-d`, `--decompile`: Read a GXT file, then output its contents on the screen
   or into a file specified by the `-o` parameter below.
   If this parameter is not specified, the program will assume the default
@@ -105,3 +109,24 @@ characters not specified in the tables are handled as follows:
 
 Private Use Area codes are used in order to not imply that an unknown character
 matches any existing Unicode character.
+
+## Character Table Format
+
+A character table consists of two tables, a decode table and an encode table.
+Normally, just one table is enough, as the encode table can be generated from
+the decode table, if omitted. The TOML-based format is as follows:
+
+```
+[decode_table]
+123='@'
+124='#'
+[encode_table]
+'@'=123
+'#'=124
+```
+In this case, 123 and 124 are the decimal codes for the characters as used in
+the GXT file, and the characters to the right are Unicode characters.
+
+If a character is missing from the decode table, it will be decoded according to
+the default table for the corresponding format. This means that it is not
+necessary to define any unchanged characters in the table file.
