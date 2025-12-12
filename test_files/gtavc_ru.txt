@@ -1,0 +1,17 @@
+format = "Vice"
+
+[main_table]
+FEM_MM = "привет, мир"
+FEM_NG = "начало"
+FEM_OPT = "настройка"
+FEM_QT = "выход"
+FEM_NO = "никак нет"
+FEM_YES = "ладно"
+FEM_OFF = "0"
+FEM_ON = "1"
+NO = "никак нет"
+YES = "ладно"
+[aux_tables.HELLO]
+ABC = "DEF"
+DEF = "GHI"
+GHI = "JKL"

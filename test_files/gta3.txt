@@ -1,0 +1,13 @@
+format = "Three"
+
+[main_table]
+FEM_MM = "HELLO WORLD"
+FEM_NG = "INITIALIZE"
+FEM_OPT = "CONFIG"
+FEM_QT = "EXIT"
+FEM_NO = "NO WAY"
+FEM_YES = "SURE"
+FEM_OFF = "0"
+FEM_ON = "1"
+NO = "No way"
+YES = "Sure"

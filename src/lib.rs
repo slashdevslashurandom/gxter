@@ -928,3 +928,48 @@ impl GXTFile {
         };
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs::File;
+    use std::io::BufReader;
+    use super::*;
+
+    #[test]
+    fn gta3_compilation_test() {
+            
+        let _f = File::open("test_files/gta3.txt").expect("Unable to open text file");
+        let mut file = BufReader::new(_f);
+        let gxt = GXTFile::read_from_text(&mut file).expect("Unable to load GXT data from text file");
+        
+        assert!( gxt.main_table.len() == 10 );
+        assert!( gxt.main_table.get("FEM_MM") == Some(&"HELLO WORLD".to_string()) );
+
+        let mut test: Vec<u8> = vec!();
+        gxt.write_to_gxt(&mut test,&None).expect("Unable to compile GXT file");
+
+        //let data = &test[..];
+        //assert!( data == b"TKEY\xC0\0\0\0\0\0\0\0" );
+        
+    }
+    
+    #[test]
+    fn gtavc_compilation_test() {
+            
+        let _f = File::open("test_files/gtavc.txt").expect("Unable to open text file");
+        let mut file = BufReader::new(_f);
+        let gxt = GXTFile::read_from_text(&mut file).expect("Unable to load GXT data from text file");
+        
+        assert!( gxt.main_table.len() == 10 );
+        assert!( gxt.main_table.get("FEM_MM") == Some(&"HELLO WORLD".to_string()) );
+
+        assert!( gxt.aux_tables.len() == 1 );
+
+        let mut test: Vec<u8> = vec!();
+        gxt.write_to_gxt(&mut test,&None).expect("Unable to compile GXT file");
+
+        //let data = &test[..];
+        //assert!( data == b"TKEY\xC0\0\0\0\0\0\0\0" );
+        
+    }
+}

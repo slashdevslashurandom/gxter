@@ -1,0 +1,17 @@
+format = "San8"
+
+[main_table]
+FEM_MM = "ПРИВЕТ, МИР"
+FEM_NG = "НАЧАТЬ"
+FEM_OPT = "НАСТРОЙКА"
+FEM_QT = "ВЫХОД"
+FEM_NO = "НИКАК НЕТ"
+FEM_YES = "ЛАДНО"
+FEM_OFF = "0"
+FEM_ON = "1"
+NO = "НИКАК НЕТ"
+YES = "ЛАДНО"
+[aux_tables.HELLO]
+ABC = "DEF"
+DEF = "GHI"
+GHI = "JKL"
