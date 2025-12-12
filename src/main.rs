@@ -1,11 +1,11 @@
 extern crate getopts;
+use gxter::GXTFile;
 use std::io;
 use std::fs::File;
 use std::io::BufReader;
 use getopts::Options;
-use crate::gxt::*;
 use std::env; //for env::args()
-mod gxt;
+mod gxt_pretty;
 
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} FILE [options]", program);
@@ -16,6 +16,7 @@ fn main() {
 
     let mut opts = Options::new();
     opts.optflag("d","decompile","decompile a .gxt file into a text file, rather than the other way around");
+    opts.optflag("p","pretty-print","print the contents of a GXT or text file with color formatting");
     opts.optopt("o","output","output file name","NAME");
     opts.optflag("K","key-sort","arrange strings in the same order as their keys");
     opts.optflag("O","offset-sort","arrange strings in the same order as their data locations");
@@ -35,6 +36,7 @@ fn main() {
     }
 
     let decompile = matches.opt_present("d");
+    let do_pretty_print = matches.opt_present("p");
     
     let input_filename = if !matches.free.is_empty() { //if we have any non-parsed arguments
         matches.free[0].clone() //treat the first of them as a file name
@@ -44,14 +46,31 @@ fn main() {
     };
    
     let data_ordering = if matches.opt_present("key-sort") { 
-        gxt::ImportOrdering::Key
+        gxter::ImportOrdering::Key
     } else if matches.opt_present("offset-sort") {
-        gxt::ImportOrdering::Offset
+        gxter::ImportOrdering::Offset
     } else {
-        gxt::ImportOrdering::Native
+        gxter::ImportOrdering::Native
     };
     
-    if decompile {
+    if do_pretty_print {
+        let gxt = if decompile {
+            let _f = File::open(&input_filename).expect("Unable to open GXT file");
+            let mut file = BufReader::new(_f);
+
+            GXTFile::read_from_gxt(&mut file, &Some(data_ordering)).expect("Unable to decompile GXT file")
+        } else {
+            let _f = File::open(&input_filename).expect("Unable to open text file");
+            let mut file = BufReader::new(_f);
+
+            GXTFile::read_from_text(&mut file).expect("Unable to decompile GXT file")
+        };
+
+        for (k,v) in gxt.main_table {
+            println!("{} = {}",k,gxt_pretty::pretty_print(&v,&gxt.format).unwrap());
+        }
+        
+    } else if decompile {
 
         let _f = File::open(&input_filename).expect("Unable to open GXT file");
         let mut file = BufReader::new(_f);
