@@ -67,7 +67,14 @@ pub struct GXTFile {
     /// files. The default ordering when decompiling a GXT file is to follow the list as
     /// specified in the TABL section. The key is the table's name, the value is an IndexMap of
     /// name/string values, same as in main_table.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "aux_tables_are_empty")]
     pub aux_tables: IndexMap<String,IndexMap<String,String>>,
+}
+
+/// helper function used to avoid serializing aux_tables if there are none
+fn aux_tables_are_empty(table: &IndexMap<String,IndexMap<String,String>>) -> bool {
+    return table.len() == 0;
 }
 
 // -- internal structures, not recommended for use
