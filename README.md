@@ -34,16 +34,24 @@ should do:
 
 - `-O`, `--offset-sort`: When decompiling, list strings in the order of their
   data offsets, according to the entries in TKEY. This is useful, as in GTA 3
-  and VC files, it is possible to determine which strings were created earlier
-  or later in the game's development (it is notable that strings related to the
-  PC ports of both games are close to the end), and in GTA SA files, since the
-  keys are CRC32 hashes, key-based ordering results in pseudorandom arrangement
-  of lines, whereas offset-based ordering shows related lines closer to each
-  other.
+  and VC files, it is possible to determine which strings were originally added
+  earlier or later in the game's development (it is notable that strings related
+  to the PC ports of both games are close to the end), and in GTA SA files,
+  since the keys are CRC32 hashes, key-based ordering results in pseudorandom
+  arrangement of lines, whereas offset-based ordering shows related lines closer
+  to each other.
 
 - `-o`, `--output` (argument: file name): When decompiling, output the resulting
   data into a TOML file specified by the argument's value, instead of on screen.
   When compiling, save the GXT file under the following file name.
+
+- `-p`, `--pretty-print`: Instead of converting a text or GXT file, "pretty
+  print" its contents in a format designed for terminal output. Color tags in
+  the file's strings (e.g. `~r~` for red) will be used to change the text's
+  color, and (depending on the format) tags referring to PS2 or Xbox controller
+  buttons will be replaced with descriptive labels. **WARNING: since tag
+  recognition happens after the strings are decoded into Unicode, this function
+  may break if custom character tables are used.**
 
 The first parameter that doesn't fit these will be interpreted as the input file
 name.
@@ -125,8 +133,23 @@ the decode table, if omitted. The TOML-based format is as follows:
 '#'=124
 ```
 In this case, 123 and 124 are the decimal codes for the characters as used in
-the GXT file, and the characters to the right are Unicode characters.
+the GXT file, and the characters inside single quotes are Unicode characters.
 
-If a character is missing from the decode table, it will be decoded according to
-the default table for the corresponding format. This means that it is not
-necessary to define any unchanged characters in the table file.
+If a character is not listed in the decode or encode table, it will be decoded
+according to the default table for the corresponding format. This means that it
+is not necessary to define any unchanged characters in the table file. This
+means that characters that "pull double duty" as both original and modified characters
+(for example, Latin `K` and Cyrillic `К`) will be properly encoded even if only
+the Cyrillic `К` is defined in the decode or encode table.
+
+## TODO
+
+The following functionality is yet to be implemented or tested:
+
+- Check that the encode table deserialization actually works, clarify the
+  format.
+- Try and make sure that tilde-based tags are always decoded *without* use of
+  custom tables, to make sure they don't interfere with pretty-printing.
+- Verify that the CRC32 hashing code is working correctly (for that, I would
+  need to know some of the original names of strings in GTA SA's script) and
+  strings added with non-hash names get proper hashes.
