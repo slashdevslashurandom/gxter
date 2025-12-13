@@ -34,8 +34,8 @@ should do:
 
 - `-n`, `--name-list`: When decompiling a GXT file, read a "name list"
   consisting of raw string names. These string names have their CRC32 hashes
-  precalculated, and in case one of these is seen in the GTA SA format file, the
-  hash is replaced with the name that matches it.
+  precalculated, and in case one of these is seen in a GTA SA format GXT file,
+  that hash is replaced with the name that matches it.
 
 - `-O`, `--offset-sort`: When decompiling, list strings in the order of their
   data offsets, according to the entries in TKEY. This is useful, as in GTA 3
@@ -87,11 +87,11 @@ but only 7 are used. Each table now has its own `TKEY` and `TDAT` structures.
 
 GTA: San Andreas modifies the format further. Now it allows for storing either
 8- or 16-bit characters (EFIGS versions of SA use 8-bit characters), and names
-of strings (but not tables) are replaced with CRC32 hashes. According to
-documentation on game scripting (the GTA Modding wiki in particular), string
-names can now be up to 39 characters large, but in practice they still seem to
-be limited to 7 characters at most. (A variation on this format is also used by
-GTA IV.)
+of strings (but not tables) are replaced with CRC32 (more specifically,
+CRC32-JAMCRC) hashes. According to documentation on game scripting (the GTA
+Modding wiki in particular), string names can now be up to 39 characters large,
+but in practice they still seem to be limited to 7 characters at most. (A
+variation on this format is also used by GTA IV.)
 
 Each format uses a different encoding. GTA III and VC's EFIGS versions use an
 ASCII-like encoding with select extended characters added afterwards, and some
@@ -105,7 +105,7 @@ of GTA 3, Vice City and San Andreas. Strings in files will be read and written
 according to the character tables built into the program. Custom tables may be
 used to add support for non-EFIGS versions of the game (for example, the
 Japanese release, or any of the bootleg translations) -- in fact, two tables are
-provided for common Russian releases of GTA: VC and SA.
+provided for common Russian releases of GTA VC and SA.
 
 The text format is using TOML as a base and has the following structure:
 ```
