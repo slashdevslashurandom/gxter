@@ -56,13 +56,51 @@ should do:
 The first parameter that doesn't fit these will be interpreted as the input file
 name.
 
+## GXT File Format (description and limitations)
+
+GXT is a binary file format used to store text strings in Grand Theft Auto games
+between GTA 2 and IV. The format changes from game to game, and this program
+specifically aims to support GTA III, Vice City and San Andreas. The file is
+used by the games to derive a list of strings that the games would show on
+screen. To switch between supported languages, the games load data from
+different files.
+
+The GTA III format file consists of a `TKEY` structure, listing each "key"
+(string name) in the file and providing a location to its contents, and a `TDAT`
+structure, which provides said contents. The fields storing a string's name are
+8 bytes long, but in practice, none of the names are longer than 7 bytes.
+(Whether or not it is possible to create a string with an 8-byte name is to be
+determined.) A string's text is a sequence of 16-bit "wide characters",
+terminated with a double null-byte. (This format is also used by GTA: Vice
+City's Xbox port.)
+
+GTA: Vice City's format extends on it by providing a `TABL` structure and
+separating the lists of strings into separate tables. Each table is referred to
+with a name, which, like names of strings, can theoretically hold up to 8 bytes,
+but only 7 are used. Each table now has its own `TKEY` and `TDAT` structures.
+(This format is also used by GTA: Liberty City Stories and Vice City Stories.)
+
+GTA: San Andreas modifies the format further. Now it allows for storing either
+8- or 16-bit characters (EFIGS versions of SA use 8-bit characters), and names
+of strings (but not tables) are replaced with CRC32 hashes. According to
+documentation on game scripting (the GTA Modding wiki in particular), string
+names can now be up to 39 characters large, but in practice they still seem to
+be limited to 7 characters at most. (A variation on this format is also used by
+GTA IV.)
+
+Each format uses a different encoding. GTA III and VC's EFIGS versions use an
+ASCII-like encoding with select extended characters added afterwards, and some
+characters replaced with button or HUD icons. GTA SA's EFIGS release uses a
+Windows-1252 encoding. Other releases of the games may use different encodings.
+
 ## Text File Format
 
 The program currently supports the North American and Western European releases
 of GTA 3, Vice City and San Andreas. Strings in files will be read and written
-according to the character tables built into the program. Support for custom
-tables (to be used with, say, Japanese or Russian translations of the games) is
-to be added in the future.
+according to the character tables built into the program. Custom tables may be
+used to add support for non-EFIGS versions of the game (for example, the
+Japanese release, or any of the bootleg translations) -- in fact, two tables are
+provided for common Russian releases of GTA: VC and SA.
 
 The text format is using TOML as a base and has the following structure:
 ```
@@ -84,25 +122,24 @@ file, with the following values being allowed:
 - `San16`: GTA IV, 16-bit characters (read as if they're 8-bit)
 
 The `main_table` section lists all the strings in the main table of the GXT
-file. In GTA 3 format files, this is the only table. 
+file. In GTA 3 format files, this is the only table, whereas in VC and SA format
+files, it's the first table among many.
 
-The `aux_tables` section lists all the auxiliary tables. These only exist in GTA
-VC and SA format files. Their names are fixed-size arrays of 8 bytes, typically
-as C-style ASCII strings (null-terminated, if shorter than 8 characters). A
-table's name is specified after the period in each `aux_tables.` section. When
-imported, these are converted into Rust strings, with extra care to make sure
-even abnormal values (like non-zero bytes after zero bytes) are preserved.
+The `aux_tables` section lists all the auxiliary tables, if they're provided.
+Each table's name is specified after the period in each `aux_tables.` section.
+When imported, these are converted into Rust strings, with extra care to make
+sure even abnormal values (like non-zero bytes after zero bytes) are preserved.
 
-Each string can be identified using either its name (GTA 3 / VC files), or CRC32
-hash (GTA SA files). Like table names, string names are sequences of 8 bytes.
-When imported, string-based names are converted into strings, and hash-based
-names are converted into a string of a hash symbol (`#`) followed by the
-hexadecimal value of the hash.
+Each string can be identified using either its name or CRC32 hash. When
+imported, string-based names are converted into strings, and hash-based names
+are converted into a string of a hash symbol (`#`) followed by the hexadecimal
+value of the hash.
 
 GXT file's strings consist of fixed-size characters (8 or 16 bits wide), encoded
 using a custom encoding. These are converted into UTF-8 when imported. The
-conversion is done using the character tables built into the program. The
-characters not specified in the tables are handled as follows:
+conversion is done first using any custom table that may be provided, then using
+the character tables built into the program. The characters not specified in the
+tables are handled as follows:
 
 - Since a null-based byte or wide character is used in GXT files as a string
   terminator, a GXT string can never contain one.
@@ -138,18 +175,18 @@ the GXT file, and the characters inside single quotes are Unicode characters.
 If a character is not listed in the decode or encode table, it will be decoded
 according to the default table for the corresponding format. This means that it
 is not necessary to define any unchanged characters in the table file. This
-means that characters that "pull double duty" as both original and modified characters
-(for example, Latin `K` and Cyrillic `К`) will be properly encoded even if only
-the Cyrillic `К` is defined in the decode or encode table.
+means that characters that "pull double duty" as both original and modified
+characters (for example, Latin `K` and Cyrillic `К`) will be properly encoded
+even if only the Cyrillic `К` is defined in the decode or encode table.
 
 ## TODO
 
 The following functionality is yet to be implemented or tested:
 
-- Check that the encode table deserialization actually works, clarify the
-  format.
 - Try and make sure that tilde-based tags are always decoded *without* use of
   custom tables, to make sure they don't interfere with pretty-printing.
 - Verify that the CRC32 hashing code is working correctly (for that, I would
   need to know some of the original names of strings in GTA SA's script) and
   strings added with non-hash names get proper hashes.
+- Add a "name list" functionality that would resolve names of known strings for
+  GTA SA format files.
