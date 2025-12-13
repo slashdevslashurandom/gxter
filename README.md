@@ -32,6 +32,11 @@ should do:
 - `-K`, `--key-sort`: When decompiling, list strings in the order of their keys,
   according to the entries in TKEY.
 
+- `-n`, `--name-list`: When decompiling a GXT file, read a "name list"
+  consisting of raw string names. These string names have their CRC32 hashes
+  precalculated, and in case one of these is seen in the GTA SA format file, the
+  hash is replaced with the name that matches it.
+
 - `-O`, `--offset-sort`: When decompiling, list strings in the order of their
   data offsets, according to the entries in TKEY. This is useful, as in GTA 3
   and VC files, it is possible to determine which strings were originally added
@@ -179,14 +184,26 @@ means that characters that "pull double duty" as both original and modified
 characters (for example, Latin `K` and Cyrillic `К`) will be properly encoded
 even if only the Cyrillic `К` is defined in the decode or encode table.
 
+## Name List Format
+
+A name list is a simple TOML file consisting of a single field: an array of
+strings named "names".
+
+```
+names = ["NAME1",
+"NAME2",
+"QWERTYU",
+"IOPASDF",
+"GHJKL"]
+```
+
+When a name list is loaded, its CRC32 hash values are precalculated, and used to
+match hashes from GTA SA format GXT files to said names. The resulting text file
+will then display these names instead of hash values.
+
 ## TODO
 
 The following functionality is yet to be implemented or tested:
 
 - Try and make sure that tilde-based tags are always decoded *without* use of
   custom tables, to make sure they don't interfere with pretty-printing.
-- Verify that the CRC32 hashing code is working correctly (for that, I would
-  need to know some of the original names of strings in GTA SA's script) and
-  strings added with non-hash names get proper hashes.
-- Add a "name list" functionality that would resolve names of known strings for
-  GTA SA format files.

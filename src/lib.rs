@@ -171,6 +171,12 @@ const SAN_DEFAULT_CHARACTER_TABLE: [char; 224] = [ //this is just the CP1252 cod
     'ð', 'ñ', 'ò', 'ó', 'ô', 'õ', 'ö', '÷', 'ø', 'ù', 'ú', 'û', 'ü', 'ý', 'þ', 'ÿ',
 ];
 
+/// This function returns a bitwise NOT of the CRC32 algorithm, in order to match the CRC32-JAMCRC
+/// algorithm that the GTA: San Andreas code is actually performing.
+fn crc32_jamcrc(bin_data: &[u8]) -> u32 {
+    return !crc32(bin_data)
+}
+
 fn decode_character(character_value: u16, format: &GXTFileFormat, custom_table: &Option<GXTCharacterTable>) -> char {
 
     let character_table: [char; 224] = match format {
@@ -269,13 +275,18 @@ pub fn read_name_list(file: &mut (impl Read + std::io::Seek + std::io::BufRead))
 
     let mut raw_data: String = Default::default();
     file.read_to_string(&mut raw_data)?;
+
+    #[derive(serde::Deserialize)]
+    struct NameList {
+        names: Vec<String>
+    }
         
-    let raw_table: Vec<String> = toml::from_str(&raw_data)?;
+    let raw_table: NameList = toml::from_str(&raw_data)?;
 
     let mut table: HashMap<u32,String> = Default::default();
 
-    for e in raw_table {
-        let _ = &table.insert(crc32(e.as_bytes()), e);
+    for e in raw_table.names {
+        let _ = &table.insert(crc32_jamcrc(e.as_bytes()), e);
     }
 
     Ok(table)
@@ -404,7 +415,7 @@ fn string_to_name_crc32(string: &str) -> Result<u32,GXTError> {
         return Ok(hash);
     } else {
         // get a CRC32 hash from an existing string
-        return Ok(crc32(string.as_bytes()));
+        return Ok(crc32_jamcrc(string.as_bytes()));
     }
 }
 
