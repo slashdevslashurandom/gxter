@@ -1,4 +1,5 @@
 extern crate getopts;
+use std::collections::HashMap;
 use gxter::GXTFile;
 use std::io;
 use std::fs::File;
@@ -16,6 +17,7 @@ fn main() {
 
     let mut opts = Options::new();
     opts.optflag("d","decompile","decompile a .gxt file into a text file, rather than the other way around");
+    opts.optopt("n","name-list","when reading CRC32 hashes of string names, match against this list of names","FILENAME");
     opts.optflag("p","pretty-print","print the contents of a GXT or text file with color formatting");
     opts.optopt("o","output","output file name","NAME");
     opts.optopt("c","character-table","custom character table","FILENAME");
@@ -63,13 +65,23 @@ fn main() {
         },
         None => None,
     };
+
+    let name_list: Option<HashMap<u32,String>> = match matches.opt_str("name-list") {
+        Some(name) => {
+            let _f = File::open(&name).expect("Unable to open name list file");
+            let mut file = BufReader::new(_f);
+
+            Some(gxter::read_name_list(&mut file).unwrap())
+        },
+        None => None,
+    };
     
     if do_pretty_print {
         let gxt = if decompile {
             let _f = File::open(&input_filename).expect("Unable to open GXT file");
             let mut file = BufReader::new(_f);
 
-            GXTFile::read_from_gxt(&mut file, &Some(data_ordering), &custom_table).expect("Unable to decompile GXT file")
+            GXTFile::read_from_gxt(&mut file, &Some(data_ordering), &custom_table, &name_list).expect("Unable to decompile GXT file")
         } else {
             let _f = File::open(&input_filename).expect("Unable to open text file");
             let mut file = BufReader::new(_f);
@@ -94,7 +106,7 @@ fn main() {
         let _f = File::open(&input_filename).expect("Unable to open GXT file");
         let mut file = BufReader::new(_f);
 
-        let gxt = GXTFile::read_from_gxt(&mut file, &Some(data_ordering), &custom_table).expect("Unable to decompile GXT file");
+        let gxt = GXTFile::read_from_gxt(&mut file, &Some(data_ordering), &custom_table, &name_list).expect("Unable to decompile GXT file");
         
         let output = matches.opt_str("o");
         match output {

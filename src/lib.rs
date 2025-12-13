@@ -70,6 +70,10 @@ pub struct GXTFile {
     #[serde(default)]
     #[serde(skip_serializing_if = "aux_tables_are_empty")]
     pub aux_tables: IndexMap<String,IndexMap<String,String>>,
+
+    ///// Contains a list of names found in the file that were successfully mapped to CRC32 hashes. 
+    //#[serde(skip)]
+    //pub name_list: HashMap<u32,String>
 }
 
 /// This structure contains a custom character table that can be used to convert between GXT and
@@ -230,7 +234,7 @@ fn encode_character(character: char, format: &GXTFileFormat, custom_table: &Opti
             let (i, c) : (usize, char) = item;
             if (c as u32) == char_code { return Ok(32 + (i as u16)); }
         }
-        return Err(GXTError::CompilationError("Character with incompatible value found".to_string()));
+        return Err(GXTError::CompilationError(format!("Codepoint with incompatible value U+{:04X} found",u32::from(character))));
     }
 }
 
@@ -243,7 +247,7 @@ fn encode_string(string: &str, format: &GXTFileFormat, custom_table: &Option<GXT
             for e in string.chars() {
                 let widechar = encode_character(e, format, custom_table)?;
                 if widechar >= 256 {
-                    return Err(GXTError::CompilationError("A SA 8-bit format GXT file may not have a character with code 256 or larger".to_string()));
+                    return Err(GXTError::CompilationError(format!("Character U+{:04X} is to be encoded as {:04X}, but the 8-bit format GXT file can only encode characters below 255.",u32::from(e),widechar)));
                 }
                 res.push((widechar & 0xFF) as u8);
             }
@@ -259,6 +263,22 @@ fn encode_string(string: &str, format: &GXTFileFormat, custom_table: &Option<GXT
     };
 
     Ok(res)
+}
+
+pub fn read_name_list(file: &mut (impl Read + std::io::Seek + std::io::BufRead)) -> Result<HashMap<u32,String>,GXTError> {
+
+    let mut raw_data: String = Default::default();
+    file.read_to_string(&mut raw_data)?;
+        
+    let raw_table: Vec<String> = toml::from_str(&raw_data)?;
+
+    let mut table: HashMap<u32,String> = Default::default();
+
+    for e in raw_table {
+        let _ = &table.insert(crc32(e.as_bytes()), e);
+    }
+
+    Ok(table)
 }
 
 pub fn read_custom_table(file: &mut (impl Read + std::io::Seek + std::io::BufRead)) -> Result<GXTCharacterTable,GXTError> {
@@ -315,7 +335,7 @@ struct GXTCompilationTDAT {
 }
 
 /// returns a sanitized string name from a raw 8-byte token name
-fn string_from_name(name: &GXTStringName) -> String {
+fn string_from_name(name: &GXTStringName, name_list: &Option<HashMap<u32,String>>) -> String {
 
     match name {
         GXTStringName::Text(t) => {
@@ -342,8 +362,14 @@ fn string_from_name(name: &GXTStringName) -> String {
             };
         },
         GXTStringName::CRC32(c) => {
-            return format!("#{c:08X}");
-        },
+            match name_list {
+                Some(l) => match l.get(c) {
+                        Some(s) => s.to_string(),
+                        None => format!("#{c:08X}"),
+                    },
+                None => format!("#{c:08X}"),
+            }
+        }
     }
 }
 
@@ -351,7 +377,7 @@ fn string_from_name(name: &GXTStringName) -> String {
 fn string_to_name_basic(string: &str) -> Result<[u8;8],GXTError> {
     let mut encoded_string: [u8;8] = [0;8];
     if string.as_bytes().len() > 8 {
-        return Err(GXTError::CompilationError("String name can't be longer than 8 bytes".to_string()));
+        return Err(GXTError::CompilationError(format!("String name ({}) can't be longer than 8 bytes",string)));
     }
     let len = string.as_bytes().len();
 
@@ -362,7 +388,7 @@ fn string_to_name_basic(string: &str) -> Result<[u8;8],GXTError> {
 fn string_to_name_crc32(string: &str) -> Result<u32,GXTError> {
     // if the string resembles a CRC32, read the hexadecimal value!
     if (string.chars().nth(0).unwrap() == '#') && (string.len() == 9) {
-        if !string.is_ascii() { return Err(GXTError::CompilationError("Invalid characters in hash-based string".to_string())); }
+        if !string.is_ascii() { return Err(GXTError::CompilationError(format!("Invalid characters in hash-based string ({})",string))); }
         let mut hex_hash: [u8; 8] = [0;8];
         hex_hash[0..8].copy_from_slice(&string.as_bytes()[1..9]);
         let mut raw_hash: [u8; 4] = [0;4];
@@ -371,7 +397,7 @@ fn string_to_name_crc32(string: &str) -> Result<u32,GXTError> {
                 raw_hash[0..4].copy_from_slice(&v.as_slice()[0..4]);
             },
             Err(_e) => { 
-                return Err(GXTError::CompilationError("Hash-based string is not a valid hex value".to_string()));
+                return Err(GXTError::CompilationError(format!("Hash-based string ({}) does not contain a valid hex value",string)));
             }
         };
         let hash: u32 = u32::from_be_bytes(raw_hash);
@@ -510,7 +536,7 @@ fn gxt_read_tkey(file: &mut (impl Read + std::io::Seek), format: &GXTFileFormat,
     return Ok(tkey);
 }
 
-fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY, tkey_offset: Option<u32>, format: &GXTFileFormat, ordering: &Option<ImportOrdering>, custom_table: &Option<GXTCharacterTable>) -> Result<IndexMap<String,String>,GXTError> {
+fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY, tkey_offset: Option<u32>, format: &GXTFileFormat, ordering: &Option<ImportOrdering>, custom_table: &Option<GXTCharacterTable>, name_list: &Option<HashMap<u32, String>>) -> Result<IndexMap<String,String>,GXTError> {
     
     let mut tkey_data_sorted = tkey.entries.clone();
     tkey_data_sorted.sort_by(|a,b| a.offset.cmp(&b.offset));
@@ -538,7 +564,7 @@ fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY,
     let mut offset_table = HashMap::<String,u64>::new();
 
     for e in &tkey.entries {
-        let name = string_from_name(&e.name);
+        let name = string_from_name(&e.name, name_list);
         let offset: u64 = (tdat_offset + 8 + e.offset).into();
         //eprintln!("Entry offset for {name} is {}, seeking to {offset}...", e.offset);
         
@@ -596,7 +622,7 @@ fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY,
     key_ordering.sort_by(|a,b| a.cmp(&b));
 
     for e in tkey_data_sorted {
-        let name = string_from_name(&e.name);
+        let name = string_from_name(&e.name, name_list);
         let name_c2 = name.clone();
         offset_ordering.push(name_c2);
     }
@@ -708,7 +734,7 @@ impl GXTFile {
                 GXTFileFormat::San8 | GXTFileFormat::San16 => {
                     match e.name {
                         GXTStringName::CRC32(h) => { file.write(&u32::to_le_bytes(h))?; },
-                        GXTStringName::Text(_) => { return Err(GXTError::CompilationError("File of this format cannot have text-based string names".to_string())); },
+                        GXTStringName::Text(_) => { return Err(GXTError::CompilationError("File of this format cannot have text-based string names".to_string())); }, // this is not an error the end user should see, as text-based names are converted to CRC32 when exporting an SA format GXT
                     }
                 },
             }
@@ -817,7 +843,7 @@ impl GXTFile {
         }
 
     }
-    pub fn read_from_gxt (file: &mut (impl Read + std::io::Seek), ordering: &Option<ImportOrdering>, custom_table: &Option<GXTCharacterTable>) -> Result<GXTFile,GXTError> {
+    pub fn read_from_gxt (file: &mut (impl Read + std::io::Seek), ordering: &Option<ImportOrdering>, custom_table: &Option<GXTCharacterTable>, name_list: &Option<HashMap<u32, String>>) -> Result<GXTFile,GXTError> {
         
         let mut first_four_bytes: [u8; 4] = [0;4];
         file.read_exact(&mut first_four_bytes)?;
@@ -839,7 +865,7 @@ impl GXTFile {
             GXTFileFormat::Three => {
                 let tkey = gxt_read_tkey(file,&format,None,None,&ordering)?;
                 return Ok(GXTFile {
-                    main_table: {gxt_read_tdat(file, &tkey, None, &format,&ordering,custom_table)?},
+                    main_table: {gxt_read_tdat(file, &tkey, None, &format, &ordering, custom_table, name_list)?},
                     format: format,
                     aux_tables: IndexMap::new(),
                 });
@@ -883,11 +909,11 @@ impl GXTFile {
 
                 let mut _key_ordering: Vec<String> = tkeys[1..].iter().map(|k| match k.name {
                     None => "".to_string(),
-                    Some(n) => string_from_name(&GXTStringName::Text(n))
+                    Some(n) => string_from_name(&GXTStringName::Text(n), name_list)
                 }).collect();
                 let mut _offset_ordering: Vec<(String,u32)> = tkeys[1..].iter().map(|k| (match k.name {
                     None => "".to_string(),
-                    Some(n) => string_from_name(&GXTStringName::Text(n))
+                    Some(n) => string_from_name(&GXTStringName::Text(n), name_list)
                 }, k.offset)).collect();
                 _key_ordering.sort_by(|a,b| (a).cmp(&b));
                 _offset_ordering.sort_by(|a,b| (a.1).cmp(&b.1));
@@ -896,10 +922,10 @@ impl GXTFile {
                 for e in &tkeys[1..] {
                     let name_string = match e.name {
                         None => { return Err(GXTError::ParsingError("An auxiliary table must have a name!".to_string())); },
-                        Some(n) => string_from_name(&GXTStringName::Text(n))
+                        Some(n) => string_from_name(&GXTStringName::Text(n), name_list)
                         };
 
-                    let new_table = gxt_read_tdat(file, &e, Some(e.offset), &format, ordering, custom_table);
+                    let new_table = gxt_read_tdat(file, &e, Some(e.offset), &format, ordering, custom_table, name_list);
                     match new_table {
                         Ok(t) => {
                             aux_tables.insert(name_string.clone(), t);
@@ -920,7 +946,7 @@ impl GXTFile {
                 
                 //eprintln!("Reading main table...");
                 return Ok(GXTFile {
-                    main_table: gxt_read_tdat(file, &tkeys[0], Some(tkeys[0].offset), &format, ordering, custom_table)?,
+                    main_table: gxt_read_tdat(file, &tkeys[0], Some(tkeys[0].offset), &format, ordering, custom_table, name_list)?,
                     format: format,
                     aux_tables,
                 });
@@ -967,6 +993,31 @@ mod tests {
 
         let mut test: Vec<u8> = vec!();
         gxt.write_to_gxt(&mut test,&None).expect("Unable to compile GXT file");
+
+        //let data = &test[..];
+        //assert!( data == b"TKEY\xC0\0\0\0\0\0\0\0" );
+        
+    }
+    
+    #[test]
+    fn gtasa_compilation_test() {
+            
+        let _f = File::open("test_files/gtasa.txt").expect("Unable to open text file");
+        let mut file = BufReader::new(_f);
+        let gxt = GXTFile::read_from_text(&mut file).expect("Unable to load GXT data from text file");
+        
+        assert!( gxt.main_table.len() == 10 );
+        assert!( gxt.main_table.get("FEM_MM") == Some(&"HELLO WORLD".to_string()) );
+
+        assert!( gxt.aux_tables.len() == 1 );
+
+        let mut test: Vec<u8> = vec!();
+        gxt.write_to_gxt(&mut test,&None).expect("Unable to compile GXT file");
+        let _array = &test[..];
+
+        //let gxt2 = GXTFile::read_from_gxt(&mut BufReader::new(array),&None,&None,&None).expect("Unable to decompile the freshly-made GXT");
+
+        // here the test should load the 
 
         //let data = &test[..];
         //assert!( data == b"TKEY\xC0\0\0\0\0\0\0\0" );
