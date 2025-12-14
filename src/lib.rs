@@ -174,7 +174,7 @@ const SAN_DEFAULT_CHARACTER_TABLE: [char; 224] = [ //this is just the CP1252 cod
 /// This function returns a bitwise NOT of the CRC32 algorithm, in order to match the CRC32-JAMCRC
 /// algorithm that the GTA: San Andreas code is actually performing.
 fn crc32_jamcrc(bin_data: &[u8]) -> u32 {
-    return !crc32(bin_data)
+    !crc32(bin_data)
 }
 
 fn decode_character(character_value: u16, format: &GXTFileFormat, custom_table: &Option<GXTCharacterTable>) -> char {
@@ -985,8 +985,8 @@ mod tests {
         let mut test: Vec<u8> = vec!();
         gxt.write_to_gxt(&mut test,&None).expect("Unable to compile GXT file");
 
-        //let data = &test[..];
-        //assert!( data == b"TKEY\xC0\0\0\0\0\0\0\0" );
+        let data = &test[..];
+        assert!( data == b"TKEY\xC0\0\0\0\0\0\0\0" );
         
     }
     
