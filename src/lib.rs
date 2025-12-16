@@ -988,11 +988,15 @@ mod tests {
         assert!( gxt.main_table.len() == 10 );
         assert!( gxt.main_table.get("FEM_MM") == Some(&"HELLO WORLD".to_string()) );
 
-        let mut test: Vec<u8> = vec!();
-        gxt.write_to_gxt(&mut test,&None).expect("Unable to compile GXT file");
+        let mut compiled_data: Vec<u8> = vec!();
+        gxt.write_to_gxt(&mut compiled_data,&None).expect("Unable to compile GXT file");
 
-        //let data = &test[..];
-        //assert!( data == b"TKEY\xC0\0\0\0\0\0\0\0" );
+        // raw GXT file made by hand!
+        let mut comparison_file = File::open("test_files/gta3.gxt").expect("Unable to open GXT file");
+        let mut comparison_data: Vec<u8> = vec!();
+        comparison_file.read_to_end(&mut comparison_data).expect("Unable to read test GXT value");
+
+        assert!( compiled_data == comparison_data );
         
     }
     
