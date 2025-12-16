@@ -733,7 +733,13 @@ impl GXTFile {
         }
         file.write(b"TKEY")?;
         file.write(&u32::to_le_bytes(tkey.size))?;
-        for e in &tkey.entries {
+
+        // TKEY entries MUST be sorted by key in the actual GXT file, as games seem to do a binary
+        // search when retrieving strings from it
+        let mut entries_sorted = tkey.entries.clone();
+        entries_sorted.sort_by(|a,b| a.name.cmp(&b.name));
+
+        for e in &entries_sorted {
             file.write(&u32::to_le_bytes(e.offset))?;
             match self.format {
                 GXTFileFormat::Three | GXTFileFormat::Vice => {
