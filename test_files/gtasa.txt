@@ -1,7 +1,6 @@
 format = "San8"
 
 [main_table]
-FEM_MM = "HELLO WORLD"
 FEM_NG = "INITIALIZE"
 FEM_OPT = "CONFIG"
 FEM_QT = "EXIT"
@@ -11,6 +10,7 @@ FEM_OFF = "0"
 FEM_ON = "1"
 NO = "No way"
 YES = "Sure"
+FEM_MM = "Hello World"
 [aux_tables.HELLO]
 ABC = "DEF"
 DEF = "GHI"
