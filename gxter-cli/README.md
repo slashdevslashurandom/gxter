@@ -65,6 +65,6 @@ The first parameter that doesn't fit these will be interpreted as the input file
 name.
 
 **See the [README.md file of the original `gxter`
-crate](https://github.com/slashdevslashurandom/gxter/README.md) for information on the
+crate](https://github.com/slashdevslashurandom/gxter/blob/main/README.md) for information on the
 file formats used in the application.**
 
