@@ -13,55 +13,27 @@ files from all three games supported, and compiling them back with small
 modifications. Further testing may be necessary to prove whether or not larger
 changes will work.
 
-## Usage
+## Interface
 
-The program runs on the command line and works with either GXT files or
-TOML-based text files. Use the following arguments to tell what the program
-should do:
+The library offers an interface for creating `GXTFile` objects from scratch,
+reading them from TOML-based text files or existing GXT files. Once created or
+read, there are three important fields:
 
-- `-c`, `--character-table`: Use a custom "character table" in order to convert
-  between the game's internal encoding and UTF-8. This option is useful for
-  non-standard releases of the games.
+- `format`: an enum that describes the GXT file's format. When exported as GXT,
+  the format's rules and limitations will be used.
 
-- `-d`, `--decompile`: Read a GXT file, then output its contents on the screen
-  or into a file specified by the `-o` parameter below.
-  If this parameter is not specified, the program will assume the default
-  operation is to compile a text file into a GXT file instead. The program will
-  determine the GXT's format based on the file's structure and act accordingly.
+- `main_table`: an IndexMap that relates key strings (either string names or
+  representations of their CRC32 hashes) to value strings (UTF-8 encoded
+  representations of the string values).
 
-- `-K`, `--key-sort`: When decompiling, list strings in the order of their keys,
-  according to the entries in TKEY. (GXT files are expected by the games to have
-  their strings sorted either by key or hash in the TKEY table, so this will
-  result in an alphabetical or hash-based sort.)
+- `aux_tables`: an IndexMap of other IndexMaps, containing all of the auxiliary
+  tables that a GXT file might have.
 
-- `-n`, `--name-list`: When decompiling a GXT file, read a "name list"
-  consisting of raw string names. These string names have their CRC32 hashes
-  precalculated, and in case one of these is seen in a GTA SA format GXT file,
-  that hash is replaced with the name that matches it.
-
-- `-O`, `--offset-sort`: When decompiling, list strings in the order of their
-  data *offsets* relative to TDAT, according to the entries in TKEY. This is
-  useful, as in GTA 3 and VC files, it is possible to determine which strings
-  were originally added earlier or later in the game's development (it is
-  notable that strings related to the PC ports of both games are close to the
-  end), and in GTA SA files, since the keys are CRC32 hashes, key-based ordering
-  results in pseudorandom arrangement of lines, whereas offset-based ordering
-  shows related lines closer to each other.
-
-- `-o`, `--output` (argument: file name): When decompiling, output the resulting
-  data into a TOML file specified by the argument's value, instead of on screen.
-  When compiling, save the GXT file under the following file name.
-
-- `-p`, `--pretty-print`: Instead of converting a text or GXT file, "pretty
-  print" its contents in a format designed for terminal output. Color tags in
-  the file's strings (e.g. `~r~` for red) will be used to change the text's
-  color, and (depending on the format) tags referring to PS2 or Xbox controller
-  buttons will be replaced with descriptive labels. **WARNING: since tag
-  recognition happens after the strings are decoded into Unicode, this function
-  may break if custom character tables are used.**
-
-The first parameter that doesn't fit these will be interpreted as the input file
-name.
+When importing from or exporting to a GXT file, a *character table* and a *name
+list* may be provided. Character tables are used to handle unconventional
+mappings between character codes and Unicode characters that don't match the
+North American or EFIGS versions of GTA 3 / VC / SA. Name lists are used in GTA
+SA format files to replace CRC32 hashes with readable names.
 
 ## GXT File Format (description and limitations)
 
