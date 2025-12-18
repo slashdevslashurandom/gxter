@@ -2,15 +2,16 @@
 name = "gxter"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "MIT or Apache-2.0"
+description = "A parsing library for creating and reading GTA 3/VC/SA GXT (text string) files"
+readme = "README.md"
+repository = "https://github.com/slashdevslashurandom/gxter"
+keywords = ["gta", "gaming", "localization", "modding", "gxt"]
 
 [dependencies]
-getopts = "0.2"
 indexmap = {version = "2.12.1", features = ["serde"]}
 toml = {version = "0.9.8", features = ["preserve_order"]}
 serde = {version = "1.0.228", features = ["derive"]}
 thiserror = "2.0.17"
 hex = "0.4.3"
 crc32_light = "0.1.2"
-anstream = "0.6.21"
-owo-colors = "4.2.3"

@@ -6,19 +6,24 @@ use std::fs::File;
 use std::io::BufReader;
 use getopts::Options;
 use std::env; //for env::args()
-mod gxt_pretty;
+
+#[cfg(feature = "pretty")] 
+mod pretty;
 
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} FILE [options]", program);
     print!("{}", opts.usage(&brief));
 }
 
-fn main() {
+fn main() -> Result<(), gxter::GXTError> {
 
     let mut opts = Options::new();
     opts.optflag("d","decompile","decompile a .gxt file into a text file, rather than the other way around");
     opts.optopt("n","name-list","when reading CRC32 hashes of string names, match against this list of names","FILENAME");
+
+#[cfg(feature = "pretty")] 
     opts.optflag("p","pretty-print","print the contents of a GXT or text file with color formatting");
+
     opts.optopt("o","output","output file name","NAME");
     opts.optopt("c","character-table","custom character table","FILENAME");
     opts.optflag("K","key-sort","arrange strings in the same order as their keys");
@@ -35,17 +40,19 @@ fn main() {
 
     if matches.opt_present("h") {
         print_usage(&program, opts);
-        return;
+        return Ok(());
     }
 
     let decompile = matches.opt_present("d");
+
+#[cfg(feature = "pretty")] 
     let do_pretty_print = matches.opt_present("p");
     
     let input_filename = if !matches.free.is_empty() { //if we have any non-parsed arguments
         matches.free[0].clone() //treat the first of them as a file name
     } else { //otherwise
         print_usage(&program, opts); //return an error message
-        return;
+        return Ok(());
     };
    
     let data_ordering = if matches.opt_present("key-sort") { 
@@ -76,6 +83,7 @@ fn main() {
         None => None,
     };
     
+#[cfg(feature = "pretty")] 
     if do_pretty_print {
         let gxt = if decompile {
             let _f = File::open(&input_filename).expect("Unable to open GXT file");
@@ -90,18 +98,21 @@ fn main() {
         };
 
         for (k,v) in gxt.main_table {
-            gxt_pretty::pretty_print(&k,&v,&gxt.format).unwrap();
+            pretty::pretty_print(&k,&v,&gxt.format).unwrap();
         }
 
         for (k,v) in gxt.aux_tables {
             println!("[{k}]");
             for (k,v) in v {
-                gxt_pretty::pretty_print(&k,&v,&gxt.format).unwrap();
+                pretty::pretty_print(&k,&v,&gxt.format).unwrap();
             }
             println!("");
         }
-        
-    } else if decompile {
+
+        return Ok(());
+    }
+
+    if decompile {
 
         let _f = File::open(&input_filename).expect("Unable to open GXT file");
         let mut file = BufReader::new(_f);
@@ -118,7 +129,8 @@ fn main() {
                 let mut stdout = io::stdout();
                 gxt.write_to_text(&mut stdout).unwrap();
             }
-        }
+        };
+        Ok(())
         
     } else {
 
@@ -138,5 +150,6 @@ fn main() {
                 eprintln!("No output file name specified!");
             },
         }
+        Ok(())
     }
 }

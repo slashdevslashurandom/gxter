@@ -642,13 +642,18 @@ fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY,
 }
 
 impl GXTFile {
-    //pub fn new(format: GXTFileFormat) -> GXTFile {
-    //    GXTFile {
-    //        format,
-    //        main_table: GXTStringTable { data: IndexMap::new() },
-    //        aux_tables: IndexMap::new(),
-    //    }
-    //}
+    /// A basic constructor.
+    ///
+    /// It is worth noting that the arguments are not, at this point, checked in any way, it is
+    /// only upon exporting a GXT file that that happens.
+    ///
+    pub fn new(format: GXTFileFormat, main_table: IndexMap<String,String>, aux_tables: IndexMap<String,IndexMap<String,String>>) -> GXTFile {
+        GXTFile {
+            format,
+            main_table,
+            aux_tables,
+        }
+    }
     pub fn write_to_text (&self, file: &mut impl Write) -> Result<(),GXTError> {
 
         let out_string = toml::to_string(self)?;
