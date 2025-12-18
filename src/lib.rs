@@ -775,6 +775,9 @@ impl GXTFile {
 
         match self.format {
             GXTFileFormat::Three => {
+                if aux_data.len() > 0 {
+                    return Err(GXTError::CompilationError("A GTA III format file cannot have auxiliary tables".to_string()));
+                }
                 self.write_tkey_to_gxt(file,&main_tkey)?;
                 file.write(b"TDAT")?;
                 file.write(&u32::to_le_bytes(main_tdat.buffer.len().try_into().unwrap()))?;
@@ -1051,5 +1054,55 @@ mod tests {
 
         assert!( compiled_data == comparison_data );
         
+    }
+
+    #[test]
+    fn gta3_cannot_have_aux_tables_test() {
+
+        let x = GXTFile::new(
+            GXTFileFormat::Three,
+            IndexMap::from([("HELLO".to_string(),"Hello world!".to_string()),("TEST".to_string(),"Test message".to_string())]),
+            IndexMap::from([("AUX1".to_string(),
+                    IndexMap::from([("HELLO".to_string(),"Hello world!".to_string())]))]),
+            );
+
+        let mut compiled_data: Vec<u8> = vec!();
+        let Err(_x) = x.write_to_gxt(&mut compiled_data,&None) else {
+            panic!("There should be an error, as GTA 3 files can't contain aux tables");
+        };
+
+    }
+    
+    #[test]
+    fn overly_long_string_names_test() {
+
+        let x = GXTFile::new(
+            GXTFileFormat::Three,
+            IndexMap::from([("HELLO".to_string(),"Hello world!".to_string()),("OVERLONG1".to_string(),"Test message".to_string())]),
+            IndexMap::new(),
+            );
+
+        let mut compiled_data: Vec<u8> = vec!();
+        let Err(_x) = x.write_to_gxt(&mut compiled_data,&None) else {
+            panic!("There should be an error, as GTA 3 / VC files can't contain keys longer than 8 bytes");
+        };
+
+    }
+    
+    #[test]
+    fn overly_long_string_names_allowed_in_sa_test() {
+
+        let x = GXTFile::new(
+            GXTFileFormat::San8,
+            IndexMap::from([("HELLO".to_string(),"Hello world!".to_string()),("OVERLONG1".to_string(),"Test message".to_string())]),
+            IndexMap::from([("AUX1".to_string(),
+                    IndexMap::from([("HELLO".to_string(),"Hello world!".to_string())]))]),
+            );
+
+        let mut compiled_data: Vec<u8> = vec!();
+        let Ok(_v) = x.write_to_gxt(&mut compiled_data,&None) else {
+            panic!("There should be no error using string names longer than 8 bytes in GTA SA format files");
+        };
+
     }
 }
