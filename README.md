@@ -30,7 +30,9 @@ should do:
   determine the GXT's format based on the file's structure and act accordingly.
 
 - `-K`, `--key-sort`: When decompiling, list strings in the order of their keys,
-  according to the entries in TKEY.
+  according to the entries in TKEY. (GXT files are expected by the games to have
+  their strings sorted either by key or hash in the TKEY table, so this will
+  result in an alphabetical or hash-based sort.)
 
 - `-n`, `--name-list`: When decompiling a GXT file, read a "name list"
   consisting of raw string names. These string names have their CRC32 hashes
@@ -38,13 +40,13 @@ should do:
   that hash is replaced with the name that matches it.
 
 - `-O`, `--offset-sort`: When decompiling, list strings in the order of their
-  data offsets, according to the entries in TKEY. This is useful, as in GTA 3
-  and VC files, it is possible to determine which strings were originally added
-  earlier or later in the game's development (it is notable that strings related
-  to the PC ports of both games are close to the end), and in GTA SA files,
-  since the keys are CRC32 hashes, key-based ordering results in pseudorandom
-  arrangement of lines, whereas offset-based ordering shows related lines closer
-  to each other.
+  data *offsets* relative to TDAT, according to the entries in TKEY. This is
+  useful, as in GTA 3 and VC files, it is possible to determine which strings
+  were originally added earlier or later in the game's development (it is
+  notable that strings related to the PC ports of both games are close to the
+  end), and in GTA SA files, since the keys are CRC32 hashes, key-based ordering
+  results in pseudorandom arrangement of lines, whereas offset-based ordering
+  shows related lines closer to each other.
 
 - `-o`, `--output` (argument: file name): When decompiling, output the resulting
   data into a TOML file specified by the argument's value, instead of on screen.
@@ -97,6 +99,12 @@ Each format uses a different encoding. GTA III and VC's EFIGS versions use an
 ASCII-like encoding with select extended characters added afterwards, and some
 characters replaced with button or HUD icons. GTA SA's EFIGS release uses a
 Windows-1252 encoding. Other releases of the games may use different encodings.
+
+GTA III and VC expect strings in each `TKEY` to be sorted by string name
+ASCIIbetically, relying on a binary search to retrieve each string. GTA SA does
+the same, but sorts by hash instead of string name. When exporting a new GXT
+file, the data offsets will reflect the order of the strings in the text file,
+while the `TKEY` entries will always be sorted as the game expects it.
 
 ## Text File Format
 
