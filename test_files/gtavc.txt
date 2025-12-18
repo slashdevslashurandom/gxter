@@ -1,4 +1,4 @@
-# This file, and gtavc.gxt next to it, are miniature files containing a handful of strings for GTA III. These mostly correspond to the game's main menu. The gtavc.gxt is hand-made and contains the same strings, ordered the same way in the TDAT structure, but the keys in TKEY should be sorted ASCIIbetically, as the game seems to use a binary search to optimize accessing data.
+# This file, and gtavc.gxt next to it, are miniature files containing a handful of strings for GTA: Vice City. These mostly correspond to the game's main menu. The gtavc.gxt is hand-made and contains the same strings, ordered the same way in the TDAT structure, but the keys in TKEY should be sorted ASCIIbetically, as the game seems to use a binary search to optimize accessing data.
 
 format = "Vice"
 
