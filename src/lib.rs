@@ -1,3 +1,21 @@
+//! This crate is used to parse and create GXT files, as well as convert them to and from
+//! user-readable TOML-based text files. GXT files are used by several games in Rockstar Games'
+//! Grand Theft Auto series to store localizable text strings (menu items, in-game hints, dialogue,
+//! etc.).
+//!
+//! The gxter package in particular is geared towards files from Grand Theft Auto III, Vice City
+//! and San Andreas, and may work on (similarly-formatted) files from Liberty City Stories and Vice
+//! City Stories.
+//!
+//! In order to read or write a GXT file, use the [GXTFile] structure, which includes methods for
+//! both creating a new structure from a GXT file, as well as writing one into a file. In addition,
+//! there are methods for creating TOML-based text files out of the structure, which 
+//!
+//! If you're working on a non-EFIGS version of a game, or making a translation of the game's
+//! script into a different language, you may be interested in the [GXTCharacterTable] structure
+//! and the [read_custom_table] function.
+//!
+#![warn(missing_docs)]
 use crc32_light::crc32;
 use std::io::prelude::*;
 use thiserror::Error;
@@ -52,6 +70,9 @@ pub enum GXTError {
     TOMLDeError(#[from] toml::de::Error),
 }
 
+/// This structure contains all the data that a GXT file can store, in an easy developer-readable
+/// form. Functions that read the data from a GXT or TOML file return this structure, while
+/// functions that export a GXT or TOML file require it as a parameter.
 #[derive(serde::Serialize,serde::Deserialize)]
 pub struct GXTFile {
 
@@ -70,10 +91,6 @@ pub struct GXTFile {
     #[serde(default)]
     #[serde(skip_serializing_if = "aux_tables_are_empty")]
     pub aux_tables: IndexMap<String,IndexMap<String,String>>,
-
-    ///// Contains a list of names found in the file that were successfully mapped to CRC32 hashes. 
-    //#[serde(skip)]
-    //pub name_list: HashMap<u32,String>
 }
 
 /// This structure contains a custom character table that can be used to convert between GXT and
@@ -271,6 +288,12 @@ fn encode_string(string: &str, format: &GXTFileFormat, custom_table: &Option<GXT
     Ok(res)
 }
 
+/// Read a name list from a TOML file. The file is expected to contain a single array of strings,
+/// which is named "names".
+///
+/// Once read, each string is hashed and a CRC32-to-string HashMap is created. This HashMap can
+/// then be supplied to the GXT file parsing functions, in which case hashes that exist in the
+/// HashMap will be replaced by their corresponding strings.
 pub fn read_name_list(file: &mut (impl Read + std::io::Seek + std::io::BufRead)) -> Result<HashMap<u32,String>,GXTError> {
 
     let mut raw_data: String = Default::default();
@@ -292,6 +315,16 @@ pub fn read_name_list(file: &mut (impl Read + std::io::Seek + std::io::BufRead))
     Ok(table)
 }
 
+/// Read a custom character table from a TOML file. 
+///
+/// The file is expected to have a \[decode_table\]
+/// section, where numeric character IDs are assigned to Unicode characters, and optionally an
+/// \[encode_table\] section, where the reverse is done, in case there are some ambiguous
+/// conversions. If the \[encode_table\] is missing, it will be generated as the reverse of the
+/// \[decode_table\].
+///
+/// The table can then be used in GXT parsing or exporting functions, in order to properly convert
+/// characters in text strings between the respective GTA game's encoding and Unicode.
 pub fn read_custom_table(file: &mut (impl Read + std::io::Seek + std::io::BufRead)) -> Result<GXTCharacterTable,GXTError> {
 
     let mut raw_data: String = Default::default();
@@ -654,12 +687,17 @@ impl GXTFile {
             aux_tables,
         }
     }
+
+    /// Write this GXTFile's contents as a TOML file.
     pub fn write_to_text (&self, file: &mut impl Write) -> Result<(),GXTError> {
 
         let out_string = toml::to_string(self)?;
         file.write(out_string.as_bytes())?;
         Ok(())
     }
+
+    /// Construct a new GXTFile from the contents of a TOML file. See README.md for details on the
+    /// file's format.
     pub fn read_from_text (file: &mut (impl Read + std::io::Seek)) -> Result<GXTFile,GXTError> {
 
         let mut raw_data: String = Default::default();
@@ -668,6 +706,7 @@ impl GXTFile {
         let file: GXTFile = toml::from_str(&raw_data)?;
         return Ok(file);
     }
+
     fn create_tkey(&self, table: &IndexMap<String,String>, table_name: Option<&str>, custom_table: &Option<GXTCharacterTable>) -> Result<(GXTInternalTKEY,GXTCompilationTDAT), GXTError> {
 
         let mut tdat = GXTCompilationTDAT {
@@ -763,6 +802,14 @@ impl GXTFile {
         }
         Ok(())
     }
+
+    /// Write this GXTFile's contents as an actual GXT file.
+    ///
+    /// If the structure cannot be represented as a GXT file due to some limitation, a
+    /// corresponding error will be returned.
+    ///
+    /// An optional character table may be supplied, if the default one for the current file format
+    /// is inadequate. This is useful for non-EFIGS versions of the game.
     pub fn write_to_gxt (&self, file: &mut impl Write, custom_table: &Option<GXTCharacterTable>) -> Result<(), GXTError> {
 
         let (main_tkey,main_tdat) = self.create_tkey(&self.main_table, None, custom_table)?;
@@ -868,6 +915,22 @@ impl GXTFile {
         }
 
     }
+
+    /// Create a new GXTFile structure from the contents of a GXT file.
+    ///
+    /// The 'ordering' parameter may be used to change the order in which the values are stored in
+    /// each IndexMap. By default, it uses the "natural" order of TKEY entries in the file, but it
+    /// may be instead sorted by the TKEYs' values (which _should_ be the same order) or by the
+    /// offsets in which the actual strings are stored (which leads to fascinating results).
+    ///
+    /// The 'custom_table' parameter may be used to supply a custom character table for non-EFIGS
+    /// versions of the game.
+    ///
+    /// The 'name_list' parameter may be used to supply a custom name list for GTA SA format files.
+    /// It is a HashMap that matches CRC32-JAMCRC hashes with their respective name strings. If a
+    /// matching hash is found during the reading process, it is replaced with the corresponding
+    /// string.
+    ///
     pub fn read_from_gxt (file: &mut (impl Read + std::io::Seek), ordering: &Option<ImportOrdering>, custom_table: &Option<GXTCharacterTable>, name_list: &Option<HashMap<u32, String>>) -> Result<GXTFile,GXTError> {
         
         let mut first_four_bytes: [u8; 4] = [0;4];
