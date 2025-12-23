@@ -118,7 +118,17 @@ sure even abnormal values (like non-zero bytes after zero bytes) are preserved.
 Each string can be identified using either its name or CRC32 hash. When
 imported, string-based names are converted into strings, and hash-based names
 are converted into a string of a hash symbol (`#`) followed by the hexadecimal
-value of the hash.
+value of the hash. If a string-based name happens to start with a hash symbol,
+another one is added to the beginning, in order to prevent name collisions (so,
+a string `#01234567` represents a hash of `0x01234567`, and `##01234567`
+represents a real string with a hypothetical name `#01234567`, which in turn
+would be hashed as `0xEA28B0AB`).
+
+(Note: when a GXT file is being compiled, the reverse operation only happens if
+the string for the key contains two hash signs (`##`). Key strings that start
+with a single hash sign and aren't followed by exactly 8 other characters will
+be read literally, so both `#NAME` and `##NAME` will work to encode a
+literal name of `#NAME`)
 
 GXT file's strings consist of fixed-size characters (8 or 16 bits wide), encoded
 using a custom encoding. These are converted into UTF-8 when imported. The

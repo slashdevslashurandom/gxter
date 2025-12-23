@@ -16,6 +16,7 @@
 //! and the [read_custom_table] function.
 //!
 #![warn(missing_docs)]
+use std::fmt;
 use crc32_light::crc32;
 use std::io::prelude::*;
 use thiserror::Error;
@@ -126,6 +127,12 @@ enum GXTStringName {
     Text([u8;8]),
     /// CRC32 format (SA)
     CRC32(u32),
+}
+
+impl fmt::Display for GXTStringName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", string_from_name(&self, &None))
+    }
 }
 
 // these tables contain the default US/European character tables used by GTA 3, VC and SA.
@@ -398,6 +405,12 @@ fn string_from_name(name: &GXTStringName, name_list: &Option<HashMap<u32,String>
                 None => {return "".to_string();},
                 Some(l) => {
                     let mut ret:String = String::new();
+
+                    // if the actual string name starts with a #, add another #, so it's not
+                    // confused for a hash
+                    
+                    if t[0] == b'#' { ret.push(t[0] as char); }
+
                     for i in 0..=l { //inclusive range!
                         ret.push(t[i] as char);
                     }
@@ -420,6 +433,17 @@ fn string_from_name(name: &GXTStringName, name_list: &Option<HashMap<u32,String>
 // used for both III / VC string names and table names
 fn string_to_name_basic(string: &str) -> Result<[u8;8],GXTError> {
     let mut encoded_string: [u8;8] = [0;8];
+    
+    let string = {
+        if string.starts_with("##") { // if we have a string that starts with ##, it's not a
+                                        // hash, but a real string that starts with a single #
+
+            string.split_at(1).1 //remove the first byte and process the rest of the string
+        } else { 
+            string 
+        }
+    };
+
     if string.as_bytes().len() > 8 {
         return Err(GXTError::CompilationError(format!("String name ({}) can't be longer than 8 bytes",string)));
     }
@@ -431,7 +455,10 @@ fn string_to_name_basic(string: &str) -> Result<[u8;8],GXTError> {
 
 fn string_to_name_crc32(string: &str) -> Result<u32,GXTError> {
     // if the string resembles a CRC32, read the hexadecimal value!
-    if (string.chars().nth(0).unwrap() == '#') && (string.len() == 9) {
+    if (string.chars().count() >= 2) // if the string is at least two characters long
+        && (string.chars().nth(0).unwrap() == '#') // and the first character is a # sign
+        && (string.chars().nth(1).unwrap() != '#') // and the second character ISN'T a # sign
+        && (string.chars().count() == 9) { //and it's exactly 9 characters long, read it as a hash
         if !string.is_ascii() { return Err(GXTError::CompilationError(format!("Invalid characters in hash-based string ({})",string))); }
         let mut hex_hash: [u8; 8] = [0;8];
         hex_hash[0..8].copy_from_slice(&string.as_bytes()[1..9]);
@@ -448,7 +475,11 @@ fn string_to_name_crc32(string: &str) -> Result<u32,GXTError> {
         return Ok(hash);
     } else {
         // get a CRC32 hash from an existing string
-        return Ok(crc32_jamcrc(string.as_bytes()));
+        if string.starts_with("##") { // if we have a string that starts with ##, omit the first #
+            Ok(crc32_jamcrc(string.split_at(1).1.as_bytes()))
+        } else {
+            Ok(crc32_jamcrc(string.as_bytes()))
+        }
     }
 }
 
@@ -1167,5 +1198,47 @@ mod tests {
             panic!("There should be no error using string names longer than 8 bytes in GTA SA format files");
         };
 
+    }
+    
+    #[test]
+    fn string_names_decompiling_with_hashes() {
+
+        // in order to avoid name collisions between string names starting with actual hash signs
+        // and hashes encoded as #XXXXXXXX, strings starting with hashes get an extra hash
+        // prepended
+
+        let _f = File::open("test_files/gta3_key_starts_with_hash.gxt").expect("Unable to open text file");
+        let mut file = BufReader::new(_f);
+        let x = GXTFile::read_from_gxt(&mut file,&Some(ImportOrdering::Offset),&None,&None).expect("Unable to load GXT data from text file");
+
+        assert!(x.main_table.contains_key("##EM_MM")); //the actual name is #EM_MM
+        assert!(x.main_table.contains_key("###M_NG")); //the actual name is ##M_NG
+
+    }
+    
+    #[test]
+    fn string_names_compiling_with_hashes() {
+
+        // in order to avoid name collisions between string names starting with actual hash signs
+        // and hashes encoded as #XXXXXXXX, compiling a GXT file with a string name containing an
+        // actual # sign requires duplicating it
+
+        let x = GXTFile::new(
+            GXTFileFormat::San8,
+            IndexMap::from([("#01234567".to_string(),"Hash".to_string()),("##01234567".to_string(),"Raw name".to_string())]),
+            Default::default(),
+            );
+
+        let mut compiled_data: Vec<u8> = vec!();
+        let Ok(_v) = x.write_to_gxt(&mut compiled_data,&None) else {
+            panic!("There should be no error using string names longer than 8 bytes in GTA SA format files");
+        };
+        
+        // raw GXT file made by hand!
+        let mut comparison_file = File::open("test_files/gtasa_hashtest.gxt").expect("Unable to open GXT file");
+        let mut comparison_data: Vec<u8> = vec!();
+        comparison_file.read_to_end(&mut comparison_data).expect("Unable to read test GXT value");
+        
+        assert!( compiled_data == comparison_data );
     }
 }
