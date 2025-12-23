@@ -81,7 +81,7 @@ dependencies = [
 
 [[package]]
 name = "gxter"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "crc32_light",
  "hex",
