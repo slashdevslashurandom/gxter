@@ -1,5 +1,7 @@
 # gxter
 
+**This project is moving to Codeberg: <https://codeberg.org/dev_urandom/gxter>**
+
 `gxter` is a (WIP) tool for reading and writing GXT files for Rockstar
 Games' Grand Theft Auto games, specifically aiming to support GTA III, Vice City
 and San Andreas.
