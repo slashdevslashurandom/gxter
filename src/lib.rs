@@ -9,21 +9,21 @@
 //!
 //! In order to read or write a GXT file, use the [GXTFile] structure, which includes methods for
 //! both creating a new structure from a GXT file, as well as writing one into a file. In addition,
-//! there are methods for creating TOML-based text files out of the structure, which 
+//! there are methods for creating TOML-based text files out of the structure, which
 //!
 //! If you're working on a non-EFIGS version of a game, or making a translation of the game's
 //! script into a different language, you may be interested in the [GXTCharacterTable] structure
 //! and the [read_custom_table] function.
 //!
 #![warn(missing_docs)]
-use std::fmt;
 use crc32_light::crc32;
-use std::io::prelude::*;
-use thiserror::Error;
 use indexmap::IndexMap;
 use std::collections::HashMap;
+use std::fmt;
+use std::io::prelude::*;
+use thiserror::Error;
 
-#[derive(serde::Serialize,serde::Deserialize,Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 /// Specifies one of the possible formats to be used when creating or loading a GXT file
 pub enum GXTFileFormat {
     /// GTA III, GTA: Vice City (Xbox)
@@ -42,13 +42,13 @@ pub enum GXTFileFormat {
 /// Specifies the order in which strings are to be stored, when read from a GXT file
 pub enum ImportOrdering {
     /// Do not change the order during import (order according to TDAT and TKEY entries)
-    Native, 
+    Native,
 
-    /// Sort tables and strings sorted by their names (alphabetically or by CRC32 hash)    
-    Key,    
+    /// Sort tables and strings sorted by their names (alphabetically or by CRC32 hash)
+    Key,
 
     /// Sort tables and strings sorted by their data offsets in the GXT file
-    Offset, 
+    Offset,
 }
 
 /// Describes the possible errors that can be returned by the program
@@ -74,16 +74,15 @@ pub enum GXTError {
 /// This structure contains all the data that a GXT file can store, in an easy developer-readable
 /// form. Functions that read the data from a GXT or TOML file return this structure, while
 /// functions that export a GXT or TOML file require it as a parameter.
-#[derive(serde::Serialize,serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct GXTFile {
-
     /// Specifies the format used when decompiling or compiling the GXT file.
     pub format: GXTFileFormat,
 
     /// Contains the "main" table. In GTA 3 files, this is the only table, whereas in GTA VC and SA
     /// files, it is the first table in the file. The key is the string's name (or hexadecimal hash
     /// prefixed by #), the value is the actual string value, mapped to UTF-8.
-    pub main_table: IndexMap<String,String>,
+    pub main_table: IndexMap<String, String>,
 
     /// Contains all the "auxiliary" tables. This container must be empty when working with GTA 3
     /// files. The default ordering when decompiling a GXT file is to follow the list as
@@ -91,14 +90,13 @@ pub struct GXTFile {
     /// name/string values, same as in main_table.
     #[serde(default)]
     #[serde(skip_serializing_if = "aux_tables_are_empty")]
-    pub aux_tables: IndexMap<String,IndexMap<String,String>>,
+    pub aux_tables: IndexMap<String, IndexMap<String, String>>,
 }
 
 /// This structure contains a custom character table that can be used to convert between GXT and
 /// text formats for non-NA/EFIGS versions of the games.
-#[derive(serde::Serialize,serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct GXTCharacterTable {
-
     /// This is the primary table. It will be used when decoding characters from GXT to figure out,
     /// which of them needs to be written into the TOML file.
     pub decode_table: HashMap<u16, char>,
@@ -114,7 +112,7 @@ pub struct GXTCharacterTable {
 }
 
 /// helper function used to avoid serializing aux_tables if there are none
-fn aux_tables_are_empty(table: &IndexMap<String,IndexMap<String,String>>) -> bool {
+fn aux_tables_are_empty(table: &IndexMap<String, IndexMap<String, String>>) -> bool {
     return table.len() == 0;
 }
 
@@ -124,11 +122,12 @@ fn aux_tables_are_empty(table: &IndexMap<String,IndexMap<String,String>>) -> boo
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 enum GXTStringName {
     /// Text format (III / VC)
-    Text([u8;8]),
+    Text([u8; 8]),
     /// CRC32 format (SA)
     CRC32(u32),
 }
 
+/// Helper function to automatically display string names
 impl fmt::Display for GXTStringName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", string_from_name(&self, &None))
@@ -144,54 +143,51 @@ impl fmt::Display for GXTStringName {
 // that the character needs to be escaped using the private use area.
 
 const GTA3_DEFAULT_CHARACTER_TABLE: [char; 224] = [
-    ' ', '!', '"', '#', '$', '%', '&','\'', '(', ')', '*', '+', ',', '-', '.', '/',
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?',
-    '™', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
-    'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\',']', '^', '°',
-    '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
-    'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '❤', '◯','\0', '~','\0',
-    'À', 'Á', 'Â', 'Ä', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï', 'Ò', 'Ó',
-    'Ô', 'Ö', 'Ù', 'Ú', 'Û', 'Ü', 'ß', 'à', 'á', 'â', 'ä', 'æ', 'ç', 'è', 'é', 'ê',
-    'ë', 'ì', 'í', 'î', 'ï', 'ò', 'ó', 'ô', 'ö', 'ù', 'ú', 'û', 'ü', 'Ñ', 'ñ', '¿',
-    '¡','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
-   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
-   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
-   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
-   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
+    ' ', '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', '0', '1', '2',
+    '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?', '™', 'A', 'B', 'C', 'D', 'E',
+    'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X',
+    'Y', 'Z', '[', '\\', ']', '^', '°', '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k',
+    'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '❤', '◯', '\0', '~',
+    '\0', 'À', 'Á', 'Â', 'Ä', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï', 'Ò', 'Ó', 'Ô', 'Ö',
+    'Ù', 'Ú', 'Û', 'Ü', 'ß', 'à', 'á', 'â', 'ä', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï',
+    'ò', 'ó', 'ô', 'ö', 'ù', 'ú', 'û', 'ü', 'Ñ', 'ñ', '¿', '¡', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
 ];
 
 const VICE_DEFAULT_CHARACTER_TABLE: [char; 224] = [
-    ' ', '!', '"', '#', '$', '%', '&','\'', '(', ')', '*', '+', ',', '-', '.', '/',
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '🛡', '=', '★', '?',
-    '™', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
-    'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\',']', '¡', '°',
-    '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
-    'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '❤', '|', '}', '~','\0',
-    'À', 'Á', 'Â', 'Ä', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï', 'Ò', 'Ó',
-    'Ô', 'Ö', 'Ù', 'Ú', 'Û', 'Ü', 'ß', 'à', 'á', 'â', 'ä', 'æ', 'ç', 'è', 'é', 'ê',
-    'ë', 'ì', 'í', 'î', 'ï', 'ò', 'ó', 'ô', 'ö', 'ù', 'ú', 'û', 'ü', 'Ñ', 'ñ', '¿',
-   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
-   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
-   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
-   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
-   '\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','\0',
+    ' ', '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', '0', '1', '2',
+    '3', '4', '5', '6', '7', '8', '9', ':', ';', '🛡', '=', '★', '?', '™', 'A', 'B', 'C', 'D', 'E',
+    'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X',
+    'Y', 'Z', '[', '\\', ']', '¡', '°', '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k',
+    'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '❤', '|', '}', '~',
+    '\0', 'À', 'Á', 'Â', 'Ä', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï', 'Ò', 'Ó', 'Ô', 'Ö',
+    'Ù', 'Ú', 'Û', 'Ü', 'ß', 'à', 'á', 'â', 'ä', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï',
+    'ò', 'ó', 'ô', 'ö', 'ù', 'ú', 'û', 'ü', 'Ñ', 'ñ', '¿', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
 ]; //the additional letter characters are temporarily disabled, until i can figure out how to
-   //separate them from the regular ones
+//separate them from the regular ones
 
-const SAN_DEFAULT_CHARACTER_TABLE: [char; 224] = [ //this is just the CP1252 codepage
-    ' ', '!', '"', '#', '$', '%', '&','\'', '(', ')', '*', '+', ',', '-', '.', '/',
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?',
-    '@', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
-    'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\',']', '^', '_',
-    '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
-    'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '|', '}', '~','\0',
-    '€','\0', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ','\0', 'Ž','\0',
-   '\0', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ','\0', 'ž', 'Ÿ',
-    ' ', '¡', '¢', '£', '¤', '¥', '¦', '§', '¨', '©', 'ª', '«', '¬', '­', '®', '¯',
-    '°', '±', '²', '³', '´', 'µ', '¶', '·', '¸', '¹', 'º', '»', '¼', '½', '¾', '¿',
-    'À', 'Á', 'Â', 'Ã', 'Ä', 'Å', 'Æ', 'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï',
-    'Ð', 'Ñ', 'Ò', 'Ó', 'Ô', 'Õ', 'Ö', '×', 'Ø', 'Ù', 'Ú', 'Û', 'Ü', 'Ý', 'Þ', 'ß',
-    'à', 'á', 'â', 'ã', 'ä', 'å', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï',
+const SAN_DEFAULT_CHARACTER_TABLE: [char; 224] = [
+    //this is just the CP1252 codepage
+    ' ', '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', '0', '1', '2',
+    '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?', '@', 'A', 'B', 'C', 'D', 'E',
+    'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X',
+    'Y', 'Z', '[', '\\', ']', '^', '_', '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k',
+    'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{', '|', '}', '~',
+    '\0', '€', '\0', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\0', 'Ž', '\0', '\0',
+    '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\0', 'ž', 'Ÿ', ' ', '¡', '¢', '£',
+    '¤', '¥', '¦', '§', '¨', '©', 'ª', '«', '¬', '­', '®', '¯', '°', '±', '²', '³', '´', 'µ', '¶',
+    '·', '¸', '¹', 'º', '»', '¼', '½', '¾', '¿', 'À', 'Á', 'Â', 'Ã', 'Ä', 'Å', 'Æ', 'Ç', 'È', 'É',
+    'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï', 'Ð', 'Ñ', 'Ò', 'Ó', 'Ô', 'Õ', 'Ö', '×', 'Ø', 'Ù', 'Ú', 'Û', 'Ü',
+    'Ý', 'Þ', 'ß', 'à', 'á', 'â', 'ã', 'ä', 'å', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï',
     'ð', 'ñ', 'ò', 'ó', 'ô', 'õ', 'ö', '÷', 'ø', 'ù', 'ú', 'û', 'ü', 'ý', 'þ', 'ÿ',
 ];
 
@@ -201,8 +197,15 @@ fn crc32_jamcrc(bin_data: &[u8]) -> u32 {
     !crc32(bin_data)
 }
 
-fn decode_character(character_value: u16, format: &GXTFileFormat, custom_table: &Option<GXTCharacterTable>) -> char {
-
+/// Convert a single 16-bit character value into a Unicode codepoint. An optional character table
+/// can be used to accommodate non-EFIGS versions of the games. Characters that aren't available
+/// in the default character table will be converted into Private Use codepoints that then can
+/// be used by [`encode_character()`].
+fn decode_character(
+    character_value: u16,
+    format: &GXTFileFormat,
+    custom_table: &Option<GXTCharacterTable>,
+) -> char {
     let character_table: [char; 224] = match format {
         GXTFileFormat::Three => GTA3_DEFAULT_CHARACTER_TABLE,
         GXTFileFormat::Vice => VICE_DEFAULT_CHARACTER_TABLE,
@@ -212,9 +215,8 @@ fn decode_character(character_value: u16, format: &GXTFileFormat, custom_table: 
     if character_value < 32 {
         char::from_u32(character_value.into()).unwrap()
     } else {
-
         let default_value = if character_value >= 0x100 {
-            char::from_u32(0xFEF00 + (character_value as u32) ).unwrap()
+            char::from_u32(0xFEF00 + (character_value as u32)).unwrap()
         } else {
             char::from_u32(0xE000 + character_value as u32).unwrap()
         };
@@ -225,19 +227,32 @@ fn decode_character(character_value: u16, format: &GXTFileFormat, custom_table: 
                 if let Some(i) = table_value {
                     return *i;
                 }
-            },
-            None => {},
+            }
+            None => {}
         }
 
         if ((character_value - 32) as usize) < character_table.len() {
             let table_value = character_table[usize::from(character_value) - 32];
-            if table_value != '\0' { table_value } else { default_value }
-        } else { default_value }
+            if table_value != '\0' {
+                table_value
+            } else {
+                default_value
+            }
+        } else {
+            default_value
+        }
     }
 }
 
-fn encode_character(character: char, format: &GXTFileFormat, custom_table: &Option<GXTCharacterTable>) -> Result<u16,GXTError> {
-    
+/// Convert a Unicode codepoint into a 16-bit character value. An optional character table
+/// can be used to accommodate non-EFIGS versions of the games. It accepts Private Use Area
+/// codepoints supplied by [`decode_character()`] in order to non-destructively process any
+/// unknown values.
+fn encode_character(
+    character: char,
+    format: &GXTFileFormat,
+    custom_table: &Option<GXTCharacterTable>,
+) -> Result<u16, GXTError> {
     let character_table: [char; 224] = match format {
         GXTFileFormat::Three => GTA3_DEFAULT_CHARACTER_TABLE,
         GXTFileFormat::Vice => VICE_DEFAULT_CHARACTER_TABLE,
@@ -245,51 +260,68 @@ fn encode_character(character: char, format: &GXTFileFormat, custom_table: &Opti
     };
 
     let char_code = character as u32;
-    if char_code < 32 { //characters between 0 and 31
+    if char_code < 32 {
+        //characters between 0 and 31
         Ok(char_code.try_into().unwrap())
-    } else if (char_code >= 0xE020) && (char_code <= 0xE0FF) { //PUA-based code for 32~255
-        Ok((char_code - 0xE000).try_into().unwrap()) 
-    } else if (char_code >= 0xF0000) && (char_code <= 0xFFEFF) { //PUA-based code for 16-bit chars
+    } else if (char_code >= 0xE020) && (char_code <= 0xE0FF) {
+        //PUA-based code for 32~255
+        Ok((char_code - 0xE000).try_into().unwrap())
+    } else if (char_code >= 0xF0000) && (char_code <= 0xFFEFF) {
+        //PUA-based code for 16-bit chars
         Ok((char_code - 0xFEF00).try_into().unwrap())
     } else {
-        
         if let Some(v) = custom_table {
             let table_value: Option<&u16> = v.encode_table.get(&character);
             if let Some(i) = table_value {
-                if *i != 0 {return Ok(*i)};
+                if *i != 0 {
+                    return Ok(*i);
+                };
             }
         }
 
         for item in character_table.into_iter().enumerate() {
-            let (i, c) : (usize, char) = item;
-            if (c as u32) == char_code { return Ok(32 + (i as u16)); }
+            let (i, c): (usize, char) = item;
+            if (c as u32) == char_code {
+                return Ok(32 + (i as u16));
+            }
         }
-        return Err(GXTError::CompilationError(format!("Codepoint with incompatible value U+{:04X} found",u32::from(character))));
+        return Err(GXTError::CompilationError(format!(
+            "Codepoint with incompatible value U+{:04X} found",
+            u32::from(character)
+        )));
     }
 }
 
-fn encode_string(string: &str, format: &GXTFileFormat, custom_table: &Option<GXTCharacterTable>) -> Result<Vec<u8>,GXTError> {
-
-    let mut res: Vec<u8> = vec!();
+/// Encode a string slice into a raw bytes.
+fn encode_string(
+    string: &str,
+    format: &GXTFileFormat,
+    custom_table: &Option<GXTCharacterTable>,
+) -> Result<Vec<u8>, GXTError> {
+    let mut res: Vec<u8> = vec![];
 
     match format {
         GXTFileFormat::San8 => {
             for e in string.chars() {
                 let widechar = encode_character(e, format, custom_table)?;
                 if widechar >= 256 {
-                    return Err(GXTError::CompilationError(format!("Character U+{:04X} is to be encoded as {:04X}, but the 8-bit format GXT file can only encode characters below 255.",u32::from(e),widechar)));
+                    return Err(GXTError::CompilationError(format!(
+                        "Character U+{:04X} is to be encoded as {:04X}, but the 8-bit format GXT file can only encode characters below 255.",
+                        u32::from(e),
+                        widechar
+                    )));
                 }
                 res.push((widechar & 0xFF) as u8);
             }
             res.push(0); // null-terminator
-        },
+        }
         GXTFileFormat::Three | GXTFileFormat::Vice | GXTFileFormat::San16 => {
             for e in string.chars() {
                 let widechar: u16 = encode_character(e, format, custom_table)?;
                 res.extend_from_slice(&u16::to_le_bytes(widechar));
             }
-            res.extend_from_slice(&[0,0]); //null-terminator
-        },
+            res.extend_from_slice(&[0, 0]); //null-terminator
+        }
     };
 
     Ok(res)
@@ -301,19 +333,20 @@ fn encode_string(string: &str, format: &GXTFileFormat, custom_table: &Option<GXT
 /// Once read, each string is hashed and a CRC32-to-string HashMap is created. This HashMap can
 /// then be supplied to the GXT file parsing functions, in which case hashes that exist in the
 /// HashMap will be replaced by their corresponding strings.
-pub fn read_name_list(file: &mut (impl Read + std::io::Seek + std::io::BufRead)) -> Result<HashMap<u32,String>,GXTError> {
-
+pub fn read_name_list(
+    file: &mut (impl Read + std::io::Seek + std::io::BufRead),
+) -> Result<HashMap<u32, String>, GXTError> {
     let mut raw_data: String = Default::default();
     file.read_to_string(&mut raw_data)?;
 
     #[derive(serde::Deserialize)]
     struct NameList {
-        names: Vec<String>
+        names: Vec<String>,
     }
-        
+
     let raw_table: NameList = toml::from_str(&raw_data)?;
 
-    let mut table: HashMap<u32,String> = Default::default();
+    let mut table: HashMap<u32, String> = Default::default();
 
     for e in raw_table.names {
         let _ = &table.insert(crc32_jamcrc(e.as_bytes()), e);
@@ -322,7 +355,7 @@ pub fn read_name_list(file: &mut (impl Read + std::io::Seek + std::io::BufRead))
     Ok(table)
 }
 
-/// Read a custom character table from a TOML file. 
+/// Read a custom character table from a TOML file.
 ///
 /// The file is expected to have a \[decode_table\]
 /// section, where numeric character IDs are assigned to Unicode characters, and optionally an
@@ -332,16 +365,17 @@ pub fn read_name_list(file: &mut (impl Read + std::io::Seek + std::io::BufRead))
 ///
 /// The table can then be used in GXT parsing or exporting functions, in order to properly convert
 /// characters in text strings between the respective GTA game's encoding and Unicode.
-pub fn read_custom_table(file: &mut (impl Read + std::io::Seek + std::io::BufRead)) -> Result<GXTCharacterTable,GXTError> {
-
+pub fn read_custom_table(
+    file: &mut (impl Read + std::io::Seek + std::io::BufRead),
+) -> Result<GXTCharacterTable, GXTError> {
     let mut raw_data: String = Default::default();
     file.read_to_string(&mut raw_data)?;
-        
+
     let mut table: GXTCharacterTable = toml::from_str(&raw_data)?;
 
     // If there's no encode table, build one using the decode table
     if table.encode_table.len() == 0 {
-        for (k,v) in &table.decode_table {
+        for (k, v) in &table.decode_table {
             table.encode_table.entry(*v).or_insert(*k);
         }
     }
@@ -349,33 +383,43 @@ pub fn read_custom_table(file: &mut (impl Read + std::io::Seek + std::io::BufRea
     return Ok(table);
 }
 
+/// Internal structure for storing a TKEY block, which lists strings' locations and names in the
+/// GXT file.
 #[derive(Clone)]
 struct GXTInternalTKEY {
-    name: Option<[u8;8]>, //None for GTA 3 or MAIN block in VC
-    offset: u32, //location of the TKEY entry in the file
-    size: u32, //number of bytes, not number of entries!
+    name: Option<[u8; 8]>, //None for GTA 3 or MAIN block in VC
+    offset: u32,           //location of the TKEY entry in the file
+    size: u32,             //number of bytes, not number of entries!
     entries: Vec<GXTInternalTKEYEntry>,
 }
 
+/// Internal structure for storing a single entry in the TKEY block, which contains the offset
+/// and name for a single string.
 #[derive(Clone)]
-struct GXTInternalTKEYEntry { 
-    offset: u32, //TDAT entry offset, relative to the first entry in the array
+struct GXTInternalTKEYEntry {
+    offset: u32,         //TDAT entry offset, relative to the first entry in the array
     name: GXTStringName, //name of the text entry
 }
 
+/// Internal structure for storing a single entry in the TABL block, used by VC, SA and IV to
+/// separate strings into individual sub-tables. The first table in the list is the "main" table,
+/// and its corresponding TKEY is slightly different from others by not having a "name" field.
 #[derive(Clone)]
 struct GXTInternalTABLEntry {
-    name: [u8;8],
+    name: [u8; 8],
     offset: u32,
     is_main: bool, //whether or not this is the main table, the first one read
 }
 
+/// Internal structure for storing the TABL block, used by VC, SA and IV to separate strings into
+/// individual sub-tables.
 #[derive(Clone)]
 struct GXTInternalTABL {
-    size: u32, //number of elements
+    size: u32,                          //number of elements
     entries: Vec<GXTInternalTABLEntry>, //array of names and offsets
 }
 
+/// Internal structure used for compilation of GXT files.
 struct GXTCompilationTDAT {
     // this buffer will store the actual contents of TDAT. it will be gradually filled with new
     // strings
@@ -386,66 +430,72 @@ struct GXTCompilationTDAT {
 }
 
 /// returns a sanitized string name from a raw 8-byte token name
-fn string_from_name(name: &GXTStringName, name_list: &Option<HashMap<u32,String>>) -> String {
-
+fn string_from_name(name: &GXTStringName, name_list: &Option<HashMap<u32, String>>) -> String {
     match name {
         GXTStringName::Text(t) => {
             // this complicated code's goal is to catch potential names that have zero bytes followed by
             // nonzero bytes
             let mut last_nonzero_index: Option<usize> = None;
-            
+
             for i in 0..t.len() {
                 let c = t[i];
-                if (c != 0) && ((last_nonzero_index == None) || (i > last_nonzero_index.unwrap())) { 
-                    last_nonzero_index = Some(i); 
+                if (c != 0) && ((last_nonzero_index == None) || (i > last_nonzero_index.unwrap())) {
+                    last_nonzero_index = Some(i);
                 }
             }
 
             match last_nonzero_index {
-                None => {return "".to_string();},
+                None => {
+                    return "".to_string();
+                }
                 Some(l) => {
-                    let mut ret:String = String::new();
+                    let mut ret: String = String::new();
 
                     // if the actual string name starts with a #, add another #, so it's not
                     // confused for a hash
-                    
-                    if t[0] == b'#' { ret.push(t[0] as char); }
 
-                    for i in 0..=l { //inclusive range!
+                    if t[0] == b'#' {
+                        ret.push(t[0] as char);
+                    }
+
+                    for i in 0..=l {
+                        //inclusive range!
                         ret.push(t[i] as char);
                     }
                     return ret;
-                },
+                }
             };
-        },
-        GXTStringName::CRC32(c) => {
-            match name_list {
-                Some(l) => match l.get(c) {
-                        Some(s) => s.to_string(),
-                        None => format!("#{c:08X}"),
-                    },
-                None => format!("#{c:08X}"),
-            }
         }
+        GXTStringName::CRC32(c) => match name_list {
+            Some(l) => match l.get(c) {
+                Some(s) => s.to_string(),
+                None => format!("#{c:08X}"),
+            },
+            None => format!("#{c:08X}"),
+        },
     }
 }
 
-// used for both III / VC string names and table names
-fn string_to_name_basic(string: &str) -> Result<[u8;8],GXTError> {
-    let mut encoded_string: [u8;8] = [0;8];
-    
+/// Convert a string slice into a valid 8-byte GXT string name, as used by GTA 3 and Vice City.
+fn string_to_name_basic(string: &str) -> Result<[u8; 8], GXTError> {
+    let mut encoded_string: [u8; 8] = [0; 8];
+
     let string = {
-        if string.starts_with("##") { // if we have a string that starts with ##, it's not a
-                                        // hash, but a real string that starts with a single #
+        if string.starts_with("##") {
+            // if we have a string that starts with ##, it's not a
+            // hash, but a real string that starts with a single #
 
             string.split_at(1).1 //remove the first byte and process the rest of the string
-        } else { 
-            string 
+        } else {
+            string
         }
     };
 
     if string.as_bytes().len() > 8 {
-        return Err(GXTError::CompilationError(format!("String name ({}) can't be longer than 8 bytes",string)));
+        return Err(GXTError::CompilationError(format!(
+            "String name ({}) can't be longer than 8 bytes",
+            string
+        )));
     }
     let len = string.as_bytes().len();
 
@@ -453,29 +503,46 @@ fn string_to_name_basic(string: &str) -> Result<[u8;8],GXTError> {
     return Ok(encoded_string);
 }
 
-fn string_to_name_crc32(string: &str) -> Result<u32,GXTError> {
+/// Convert a string name into a CRC32 hash, as used by GTA: San Andreas. The rules are as follows:
+/// - regular text strings are hashed
+/// - strings that start with a single # sign are read as hexadecimal 32-bit numbers and used as
+///   raw hash values
+/// - strings that start with TWO # signs have the first # sign ignored and read as raw strings
+///   (so, a string "##HELLO" will be converted into "#HELLO" and then hashed
+fn string_to_name_crc32(string: &str) -> Result<u32, GXTError> {
     // if the string resembles a CRC32, read the hexadecimal value!
     if (string.chars().count() >= 2) // if the string is at least two characters long
         && (string.chars().nth(0).unwrap() == '#') // and the first character is a # sign
         && (string.chars().nth(1).unwrap() != '#') // and the second character ISN'T a # sign
-        && (string.chars().count() == 9) { //and it's exactly 9 characters long, read it as a hash
-        if !string.is_ascii() { return Err(GXTError::CompilationError(format!("Invalid characters in hash-based string ({})",string))); }
-        let mut hex_hash: [u8; 8] = [0;8];
+        && (string.chars().count() == 9)
+    {
+        //and it's exactly 9 characters long, read it as a hash
+        if !string.is_ascii() {
+            return Err(GXTError::CompilationError(format!(
+                "Invalid characters in hash-based string ({})",
+                string
+            )));
+        }
+        let mut hex_hash: [u8; 8] = [0; 8];
         hex_hash[0..8].copy_from_slice(&string.as_bytes()[1..9]);
-        let mut raw_hash: [u8; 4] = [0;4];
+        let mut raw_hash: [u8; 4] = [0; 4];
         match hex::decode(hex_hash) {
-            Ok(v) => { 
+            Ok(v) => {
                 raw_hash[0..4].copy_from_slice(&v.as_slice()[0..4]);
-            },
-            Err(_e) => { 
-                return Err(GXTError::CompilationError(format!("Hash-based string ({}) does not contain a valid hex value",string)));
+            }
+            Err(_e) => {
+                return Err(GXTError::CompilationError(format!(
+                    "Hash-based string ({}) does not contain a valid hex value",
+                    string
+                )));
             }
         };
         let hash: u32 = u32::from_be_bytes(raw_hash);
         return Ok(hash);
     } else {
         // get a CRC32 hash from an existing string
-        if string.starts_with("##") { // if we have a string that starts with ##, omit the first #
+        if string.starts_with("##") {
+            // if we have a string that starts with ##, omit the first #
             Ok(crc32_jamcrc(string.split_at(1).1.as_bytes()))
         } else {
             Ok(crc32_jamcrc(string.as_bytes()))
@@ -483,22 +550,28 @@ fn string_to_name_crc32(string: &str) -> Result<u32,GXTError> {
     }
 }
 
-fn string_to_name(string: &str, format: &GXTFileFormat) -> Result<GXTStringName,GXTError> {
+/// Common function for converting a string name into a [`GXTStringName`] structure describing the
+/// raw data. Will call [`string_to_name_basic()`] or [`string_to_name_crc32()`] depending on the
+/// file format used.
+fn string_to_name(string: &str, format: &GXTFileFormat) -> Result<GXTStringName, GXTError> {
     match format {
-        GXTFileFormat::Three | GXTFileFormat::Vice => { // string names are 8-byte sequences
+        GXTFileFormat::Three | GXTFileFormat::Vice => {
+            // string names are 8-byte sequences
             return Ok(GXTStringName::Text(string_to_name_basic(string)?));
-        },
-        GXTFileFormat::San8 | GXTFileFormat::San16 => { // string names are CRC32s
+        }
+        GXTFileFormat::San8 | GXTFileFormat::San16 => {
+            // string names are CRC32s
             return Ok(GXTStringName::CRC32(string_to_name_crc32(string)?));
-        },
+        }
     }
 }
 
-fn gxt_read_tabl(file: &mut (impl Read + std::io::Seek)) -> Result<GXTInternalTABL,GXTError> {
-
-    let mut magic_number: [u8; 4] = [0;4];
+/// Internal function for reading a TABL block from a GXT file. VC and SA have the exact same
+/// format for TABL blocks, and III does not use them at all.
+fn gxt_read_tabl(file: &mut (impl Read + std::io::Seek)) -> Result<GXTInternalTABL, GXTError> {
+    let mut magic_number: [u8; 4] = [0; 4];
     file.read_exact(&mut magic_number)?;
-    
+
     if magic_number != *b"TABL" {
         return Err(GXTError::ParsingError("Invalid TABL header".to_string()));
     }
@@ -507,49 +580,74 @@ fn gxt_read_tabl(file: &mut (impl Read + std::io::Seek)) -> Result<GXTInternalTA
         size: 0,
         entries: Vec::new(),
     };
-    
-    let mut raw_size: [u8; 4] = [0;4];
+
+    let mut raw_size: [u8; 4] = [0; 4];
     file.read_exact(&mut raw_size)?;
 
     tabl.size = u32::from_le_bytes(raw_size);
     let count = u32::from_le_bytes(raw_size) / 12; //each TABL entry is 12 bytes long
     let mut index: u32 = 0;
-    
+
     while index < count {
-        let mut raw_name: [u8; 8] = [0;8];
-        let mut raw_offset: [u8; 4] = [0;4];
-        
+        let mut raw_name: [u8; 8] = [0; 8];
+        let mut raw_offset: [u8; 4] = [0; 4];
+
         file.read_exact(&mut raw_name)?;
         file.read_exact(&mut raw_offset)?;
 
         let offset = u32::from_le_bytes(raw_offset);
 
-        tabl.entries.push(GXTInternalTABLEntry { name:raw_name, offset:offset, is_main: (index == 0) && (raw_name == *b"MAIN\0\0\0\0") });
+        tabl.entries.push(GXTInternalTABLEntry {
+            name: raw_name,
+            offset: offset,
+            is_main: (index == 0) && (raw_name == *b"MAIN\0\0\0\0"),
+        });
 
         index += 1;
     }
 
     return Ok(tabl);
-
 }
 
-fn gxt_read_tkey(file: &mut (impl Read + std::io::Seek), format: &GXTFileFormat, name: Option<[u8;8]>, offset:Option<u32>, ordering: &Option<ImportOrdering>) -> Result<GXTInternalTKEY,GXTError> {
+/// Internal function for reading a TKEY block from a GXT file.
+///
+/// `format`: Specifies for which game the GXT file is formatted for. The format is different
+/// between games.
+///
+/// `name`: `None` when reading GTA3 files or the MAIN blocks of VC or SA files, `Some` when reading
+/// non-MAIN blocks of VC or SA files. Despite the sub-table's name already being listed in TABL,
+/// non-MAIN blocks then have that name repeated at the start of their TKEY.
+///
+/// `offset`: the offset from which that block has to be read. `None` means zero and is used for
+/// GTA3 files, which have no TABL and only have one TKEY block.
+///
+/// `ordering`: specifies in what order the entries should be located in the final structure. See
+/// the [`ImportOrdering`] docs for more details.
+fn gxt_read_tkey(
+    file: &mut (impl Read + std::io::Seek),
+    format: &GXTFileFormat,
+    name: Option<[u8; 8]>,
+    offset: Option<u32>,
+    ordering: &Option<ImportOrdering>,
+) -> Result<GXTInternalTKEY, GXTError> {
     //name should be None for GTA3 and VC's MAIN entry
 
     file.seek(std::io::SeekFrom::Start(offset.unwrap_or(0).into()))?;
 
-    let actual_name: Option<[u8;8]> = match name {
+    let actual_name: Option<[u8; 8]> = match name {
         None => None,
         Some(_) => {
-            let mut raw_name: [u8;8] = [0;8];
+            let mut raw_name: [u8; 8] = [0; 8];
             file.read_exact(&mut raw_name)?;
+            // TODO: some kind of warning message when the TKEY entry name doesn't match the one
+            // in the TDAT block
             Some(raw_name)
-        },
+        }
     };
-    
-    let mut magic_number: [u8; 4] = [0;4];
+
+    let mut magic_number: [u8; 4] = [0; 4];
     file.read_exact(&mut magic_number)?;
-    
+
     if magic_number != *b"TKEY" {
         return Err(GXTError::ParsingError("Invalid TKEY header".to_string()));
     }
@@ -561,123 +659,160 @@ fn gxt_read_tkey(file: &mut (impl Read + std::io::Seek), format: &GXTFileFormat,
         entries: Vec::new(),
     };
 
-    let mut raw_size: [u8; 4] = [0;4];
+    let mut raw_size: [u8; 4] = [0; 4];
     file.read_exact(&mut raw_size)?;
 
     tkey.size = u32::from_le_bytes(raw_size);
-    
+
     let entry_size = match format {
         GXTFileFormat::Three | GXTFileFormat::Vice => 12, //4 for offset, 8 for name
-        GXTFileFormat::San8 | GXTFileFormat::San16 => 8, //4 for offset, 4 for CRC32
+        GXTFileFormat::San8 | GXTFileFormat::San16 => 8,  //4 for offset, 4 for CRC32
     };
     let count = u32::from_le_bytes(raw_size) / entry_size; //each TKEY entry is 12 bytes long
     let mut index: u32 = 0;
 
     while index < count {
-        
-        let mut raw_offset: [u8; 4] = [0;4];
+        let mut raw_offset: [u8; 4] = [0; 4];
         file.read_exact(&mut raw_offset)?;
         let offset = u32::from_le_bytes(raw_offset);
-        
+
         let name: GXTStringName = match format {
             GXTFileFormat::Three | GXTFileFormat::Vice => {
-                let mut raw_name: [u8; 8] = [0;8];
+                let mut raw_name: [u8; 8] = [0; 8];
                 file.read_exact(&mut raw_name)?;
                 GXTStringName::Text(raw_name)
-            },
+            }
             GXTFileFormat::San8 | GXTFileFormat::San16 => {
-                let mut raw_crc32: [u8; 4] = [0;4];
+                let mut raw_crc32: [u8; 4] = [0; 4];
                 file.read_exact(&mut raw_crc32)?;
                 GXTStringName::CRC32(u32::from_le_bytes(raw_crc32))
-            },
+            }
         };
 
         tkey.entries.push(GXTInternalTKEYEntry { offset, name });
 
         index += 1;
     }
-    
-    match ordering {
-        None | Some(ImportOrdering::Native) => {},
-        Some(ImportOrdering::Key) => {
-            tkey.entries.sort_by(|a,b| a.name.cmp(&b.name));
-        },
-        Some(ImportOrdering::Offset) => {
-            tkey.entries.sort_by(|a,b| a.offset.cmp(&b.offset));
-        },
-    }
 
+    match ordering {
+        None | Some(ImportOrdering::Native) => {}
+        Some(ImportOrdering::Key) => {
+            tkey.entries.sort_by(|a, b| a.name.cmp(&b.name));
+        }
+        Some(ImportOrdering::Offset) => {
+            tkey.entries.sort_by(|a, b| a.offset.cmp(&b.offset));
+        }
+    }
 
     return Ok(tkey);
 }
 
-fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY, tkey_offset: Option<u32>, format: &GXTFileFormat, ordering: &Option<ImportOrdering>, custom_table: &Option<GXTCharacterTable>, name_list: &Option<HashMap<u32, String>>) -> Result<IndexMap<String,String>,GXTError> {
-    
+/// Internal function for reading a TDAT block from a GXT file.
+///
+/// The TDAT block contains all the actual string data in the file, but has nothing to indicate
+/// where each string starts or what is its name.
+///
+/// `tkey`: the [`GXTInternalTKEY`] structure listing the names and offsets of entries in TDAT.
+///
+/// `tkey_offset`: the offset specified in the TKEY entry.
+///
+/// `format`: specifies which game the GXT file is for, and determines how it is read.
+///
+/// `ordering`: specifies in what order the entries should be located in the final structure. See
+/// the [`ImportOrdering`] docs for more details.
+///
+/// `custom_table`: specifies an optional custom character table. The
+/// table built into this program can read files from EFIGS versions of GTA games, but any other
+/// translations need a custom table to be read properly.
+///
+/// `name_list`: the SA format files do not list strings by name, but rather by their CRC32 hash.
+/// If a name list is specified, then the matching hashes will be converted back into
+/// names, for ease of editing.
+fn gxt_read_tdat(
+    file: &mut (impl Read + std::io::Seek),
+    tkey: &GXTInternalTKEY,
+    tkey_offset: Option<u32>,
+    format: &GXTFileFormat,
+    ordering: &Option<ImportOrdering>,
+    custom_table: &Option<GXTCharacterTable>,
+    name_list: &Option<HashMap<u32, String>>,
+) -> Result<IndexMap<String, String>, GXTError> {
     let mut tkey_data_sorted = tkey.entries.clone();
-    tkey_data_sorted.sort_by(|a,b| a.offset.cmp(&b.offset));
+    tkey_data_sorted.sort_by(|a, b| a.offset.cmp(&b.offset));
 
-    let mut key_ordering:  Vec<String> = Vec::new();
+    let mut key_ordering: Vec<String> = Vec::new();
     let mut offset_ordering: Vec<String> = Vec::new();
 
-    let tdat_offset = tkey_offset.unwrap_or(0) + tkey.size + 8 + match tkey.name {
-        None => 0, //MAIN block doesn't have the extra 8 bytes at the start
-        Some(_) => 8}; //named blocks do
+    let tdat_offset = tkey_offset.unwrap_or(0)
+        + tkey.size
+        + 8
+        + match tkey.name {
+            None => 0, //MAIN block doesn't have the extra 8 bytes at the start
+            Some(_) => 8,
+        }; //named blocks do
 
     file.seek(std::io::SeekFrom::Start(tdat_offset.into()))?;
 
-    let mut magic_number: [u8; 4] = [0;4];
+    let mut magic_number: [u8; 4] = [0; 4];
     file.read_exact(&mut magic_number)?;
-    
+
     if magic_number != *b"TDAT" {
         return Err(GXTError::ParsingError("Invalid TDAT header".to_string()));
     }
 
-    let mut raw_size: [u8; 4] = [0;4];
+    let mut raw_size: [u8; 4] = [0; 4];
     file.read_exact(&mut raw_size)?;
 
-    let mut table = IndexMap::<String,String>::new();
-    let mut offset_table = HashMap::<String,u64>::new();
+    let mut table = IndexMap::<String, String>::new();
+    let mut offset_table = HashMap::<String, u64>::new();
 
     for e in &tkey.entries {
         let name = string_from_name(&e.name, name_list);
         let offset: u64 = (tdat_offset + 8 + e.offset).into();
         //eprintln!("Entry offset for {name} is {}, seeking to {offset}...", e.offset);
-        
+
         file.seek(std::io::SeekFrom::Start(offset))?;
-                
+
         let mut value = String::new();
 
         match format {
             GXTFileFormat::Three | GXTFileFormat::Vice => {
-                let mut raw_2byte_sequence: [u8; 2] = [0;2];
+                let mut raw_2byte_sequence: [u8; 2] = [0; 2];
 
                 loop {
                     file.read_exact(&mut raw_2byte_sequence)?;
-                    let character_value = raw_2byte_sequence[0] as u16 + 256*(raw_2byte_sequence[1] as u16);
-                    if character_value == 0 { break; }
-                    value.push(decode_character(character_value,&format,custom_table));
-                };
-            },
+                    let character_value =
+                        raw_2byte_sequence[0] as u16 + 256 * (raw_2byte_sequence[1] as u16);
+                    if character_value == 0 {
+                        break;
+                    }
+                    value.push(decode_character(character_value, &format, custom_table));
+                }
+            }
             GXTFileFormat::San8 => {
                 let mut raw_byte: [u8; 1] = [0];
                 loop {
                     file.read_exact(&mut raw_byte)?;
-                    if raw_byte[0] == 0 { break; }
-                    value.push(decode_character(raw_byte[0].into(),&format,custom_table));
-                };
-            },
+                    if raw_byte[0] == 0 {
+                        break;
+                    }
+                    value.push(decode_character(raw_byte[0].into(), &format, custom_table));
+                }
+            }
             GXTFileFormat::San16 => {
-                let mut raw_2byte_sequence: [u8; 2] = [0;2];
+                let mut raw_2byte_sequence: [u8; 2] = [0; 2];
 
                 loop {
                     file.read_exact(&mut raw_2byte_sequence)?;
                     let character_value = raw_2byte_sequence[0] as u16;
-                    if character_value == 0 { break; }
-                    value.push(decode_character(character_value,&format,custom_table));
-                };
-            },
+                    if character_value == 0 {
+                        break;
+                    }
+                    value.push(decode_character(character_value, &format, custom_table));
+                }
+            }
         }
-        
+
         let name_c1 = name.clone();
         key_ordering.push(name_c1);
         offset_table.insert(name.clone(), offset);
@@ -685,33 +820,39 @@ fn gxt_read_tdat(file: &mut (impl Read + std::io::Seek), tkey: &GXTInternalTKEY,
     }
 
     match ordering {
-        None | Some(ImportOrdering::Native) => {},
+        None | Some(ImportOrdering::Native) => {}
         Some(ImportOrdering::Key) => {
             table.sort_unstable_keys();
-        },
+        }
         Some(ImportOrdering::Offset) => {
-            table.sort_by(|a,_,b,_| offset_table[a].cmp(&offset_table[b]));
-        },
+            table.sort_by(|a, _, b, _| offset_table[a].cmp(&offset_table[b]));
+        }
     }
 
-    key_ordering.sort_by(|a,b| a.cmp(&b));
+    key_ordering.sort_by(|a, b| a.cmp(&b));
 
     for e in tkey_data_sorted {
         let name = string_from_name(&e.name, name_list);
         let name_c2 = name.clone();
         offset_ordering.push(name_c2);
     }
-                
+
     return Ok(table);
 }
 
+/// A structure for handling GXT data. It is used to read and write both raw GXT files and their
+/// user-editable TOML representations.
 impl GXTFile {
     /// A basic constructor.
     ///
     /// It is worth noting that the arguments are not, at this point, checked in any way, it is
     /// only upon exporting a GXT file that that happens.
     ///
-    pub fn new(format: GXTFileFormat, main_table: IndexMap<String,String>, aux_tables: IndexMap<String,IndexMap<String,String>>) -> GXTFile {
+    pub fn new(
+        format: GXTFileFormat,
+        main_table: IndexMap<String, String>,
+        aux_tables: IndexMap<String, IndexMap<String, String>>,
+    ) -> GXTFile {
         GXTFile {
             format,
             main_table,
@@ -720,8 +861,7 @@ impl GXTFile {
     }
 
     /// Write this GXTFile's contents as a TOML file.
-    pub fn write_to_text (&self, file: &mut impl Write) -> Result<(),GXTError> {
-
+    pub fn write_to_text(&self, file: &mut impl Write) -> Result<(), GXTError> {
         let out_string = toml::to_string(self)?;
         file.write(out_string.as_bytes())?;
         Ok(())
@@ -729,19 +869,23 @@ impl GXTFile {
 
     /// Construct a new GXTFile from the contents of a TOML file. See README.md for details on the
     /// file's format.
-    pub fn read_from_text (file: &mut (impl Read + std::io::Seek)) -> Result<GXTFile,GXTError> {
-
+    pub fn read_from_text(file: &mut (impl Read + std::io::Seek)) -> Result<GXTFile, GXTError> {
         let mut raw_data: String = Default::default();
         file.read_to_string(&mut raw_data)?;
-        
+
         let file: GXTFile = toml::from_str(&raw_data)?;
         return Ok(file);
     }
 
-    fn create_tkey(&self, table: &IndexMap<String,String>, table_name: Option<&str>, custom_table: &Option<GXTCharacterTable>) -> Result<(GXTInternalTKEY,GXTCompilationTDAT), GXTError> {
-
+    /// Create a [`GXTInternalTKEY`] to be used for saving GXT files.
+    fn create_tkey(
+        &self,
+        table: &IndexMap<String, String>,
+        table_name: Option<&str>,
+        custom_table: &Option<GXTCharacterTable>,
+    ) -> Result<(GXTInternalTKEY, GXTCompilationTDAT), GXTError> {
         let mut tdat = GXTCompilationTDAT {
-            buffer: vec!(),
+            buffer: vec![],
             offset_map: Default::default(),
         };
 
@@ -752,33 +896,35 @@ impl GXTFile {
             },
             offset: 0,
             size: 0,
-            entries: vec!(),
+            entries: vec![],
         };
 
-        for (k,v) in table {
+        for (k, v) in table {
             let offset = tdat.offset_map.get(v);
             match offset {
                 Some(o) => {
                     // String exists, we reuse the existing offset
-                    tkey.entries.push( GXTInternalTKEYEntry {
-                        name: string_to_name(k,&self.format)?,
+                    tkey.entries.push(GXTInternalTKEYEntry {
+                        name: string_to_name(k, &self.format)?,
                         offset: *o as u32,
                     });
-                },
+                }
                 None => {
                     // String does not exist, we add a new one
                     let cur_pos: usize = tdat.buffer.len();
-                    let _ = tdat.buffer.write(&encode_string(v,&self.format,custom_table)?);
-                    
-                    tkey.entries.push( GXTInternalTKEYEntry {
-                        name: string_to_name(k,&self.format)?,
+                    let _ = tdat
+                        .buffer
+                        .write(&encode_string(v, &self.format, custom_table)?);
+
+                    tkey.entries.push(GXTInternalTKEYEntry {
+                        name: string_to_name(k, &self.format)?,
                         offset: cur_pos as u32,
                     });
-                },
+                }
             };
             tkey.size += match self.format {
                 GXTFileFormat::Three | GXTFileFormat::Vice => 12, //4 for offset, 8 for name
-                GXTFileFormat::San8 | GXTFileFormat::San16 => 8, //4 for offset, 4 for CRC32
+                GXTFileFormat::San8 | GXTFileFormat::San16 => 8,  //4 for offset, 4 for CRC32
             };
         }
         match self.format {
@@ -789,22 +935,30 @@ impl GXTFile {
                 // other blocks already have length divisible by 4
                 let filler: u32 = if (tdat.buffer.len() % 4) != 0 {
                     4 - (u32::try_from(tdat.buffer.len()).unwrap() % 4)
-                } else { 0 };
+                } else {
+                    0
+                };
 
                 for _ in 0..filler {
                     tdat.buffer.push(0);
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         };
-        Ok((tkey,tdat))
+        Ok((tkey, tdat))
     }
-    fn write_tkey_to_gxt(&self, file: &mut impl Write, tkey: &GXTInternalTKEY) -> Result<(), GXTError> {
+
+    /// Internal function for writing the [`GXTInternalTKEY`] structure into aan actual GXT file.
+    fn write_tkey_to_gxt(
+        &self,
+        file: &mut impl Write,
+        tkey: &GXTInternalTKEY,
+    ) -> Result<(), GXTError> {
         match tkey.name {
-            None => {},
+            None => {}
             Some(t) => {
                 file.write(&t)?;
-            },
+            }
         }
         file.write(b"TKEY")?;
         file.write(&u32::to_le_bytes(tkey.size))?;
@@ -812,23 +966,34 @@ impl GXTFile {
         // TKEY entries MUST be sorted by key in the actual GXT file, as games seem to do a binary
         // search when retrieving strings from it
         let mut entries_sorted = tkey.entries.clone();
-        entries_sorted.sort_by(|a,b| a.name.cmp(&b.name));
+        entries_sorted.sort_by(|a, b| a.name.cmp(&b.name));
 
         for e in &entries_sorted {
             file.write(&u32::to_le_bytes(e.offset))?;
             match self.format {
-                GXTFileFormat::Three | GXTFileFormat::Vice => {
-                    match e.name {
-                        GXTStringName::Text(t) => { file.write(&t)?; },
-                        GXTStringName::CRC32(_) => { return Err(GXTError::CompilationError("File of this format cannot have CRC32-based string names".to_string())); },
+                GXTFileFormat::Three | GXTFileFormat::Vice => match e.name {
+                    GXTStringName::Text(t) => {
+                        file.write(&t)?;
+                    }
+                    GXTStringName::CRC32(_) => {
+                        return Err(GXTError::CompilationError(
+                            "File of this format cannot have CRC32-based string names".to_string(),
+                        ));
                     }
                 },
                 GXTFileFormat::San8 | GXTFileFormat::San16 => {
                     match e.name {
-                        GXTStringName::CRC32(h) => { file.write(&u32::to_le_bytes(h))?; },
-                        GXTStringName::Text(_) => { return Err(GXTError::CompilationError("File of this format cannot have text-based string names".to_string())); }, // this is not an error the end user should see, as text-based names are converted to CRC32 when exporting an SA format GXT
+                        GXTStringName::CRC32(h) => {
+                            file.write(&u32::to_le_bytes(h))?;
+                        }
+                        GXTStringName::Text(_) => {
+                            return Err(GXTError::CompilationError(
+                                "File of this format cannot have text-based string names"
+                                    .to_string(),
+                            ));
+                        } // this is not an error the end user should see, as text-based names are converted to CRC32 when exporting an SA format GXT
                     }
-                },
+                }
             }
         }
         Ok(())
@@ -841,110 +1006,130 @@ impl GXTFile {
     ///
     /// An optional character table may be supplied, if the default one for the current file format
     /// is inadequate. This is useful for non-EFIGS versions of the game.
-    pub fn write_to_gxt (&self, file: &mut impl Write, custom_table: &Option<GXTCharacterTable>) -> Result<(), GXTError> {
+    pub fn write_to_gxt(
+        &self,
+        file: &mut impl Write,
+        custom_table: &Option<GXTCharacterTable>,
+    ) -> Result<(), GXTError> {
+        let (main_tkey, main_tdat) = self.create_tkey(&self.main_table, None, custom_table)?;
 
-        let (main_tkey,main_tdat) = self.create_tkey(&self.main_table, None, custom_table)?;
+        let mut aux_data: Vec<(GXTInternalTKEY, GXTCompilationTDAT)> = vec![];
 
-        let mut aux_data: Vec<(GXTInternalTKEY,GXTCompilationTDAT)> = vec!();
-
-        for (k,v) in &self.aux_tables {
+        for (k, v) in &self.aux_tables {
             aux_data.push(self.create_tkey(&v, Some(k), custom_table)?);
         }
 
         match self.format {
             GXTFileFormat::Three => {
                 if aux_data.len() > 0 {
-                    return Err(GXTError::CompilationError("A GTA III format file cannot have auxiliary tables".to_string()));
+                    return Err(GXTError::CompilationError(
+                        "A GTA III format file cannot have auxiliary tables".to_string(),
+                    ));
                 }
-                self.write_tkey_to_gxt(file,&main_tkey)?;
+                self.write_tkey_to_gxt(file, &main_tkey)?;
                 file.write(b"TDAT")?;
-                file.write(&u32::to_le_bytes(main_tdat.buffer.len().try_into().unwrap()))?;
+                file.write(&u32::to_le_bytes(
+                    main_tdat.buffer.len().try_into().unwrap(),
+                ))?;
                 file.write(&main_tdat.buffer)?;
                 Ok(())
-            },
+            }
             GXTFileFormat::Vice => {
                 file.write(b"TABL")?;
                 let tabl_size: u32 = 12u32 * (1 + u32::try_from(self.aux_tables.len()).unwrap());
-                file.write(&u32::to_le_bytes( tabl_size ))?;
+                file.write(&u32::to_le_bytes(tabl_size))?;
 
                 let mut table_offset = tabl_size + 8;
                 file.write(b"MAIN\0\0\0\0")?;
-                file.write(&u32::to_le_bytes( table_offset ))?;
-                table_offset += 8 + main_tkey.size + 8 + u32::try_from(main_tdat.buffer.len()).unwrap();
+                file.write(&u32::to_le_bytes(table_offset))?;
+                table_offset +=
+                    8 + main_tkey.size + 8 + u32::try_from(main_tdat.buffer.len()).unwrap();
 
                 for e in &aux_data {
                     match e.0.name {
                         Some(n) => {
-                            let table_name: [u8;8] = n;
+                            let table_name: [u8; 8] = n;
                             file.write(&table_name)?;
-                            file.write(&u32::to_le_bytes( table_offset ))?;
-                        },
+                            file.write(&u32::to_le_bytes(table_offset))?;
+                        }
                         None => {
-                            return Err(GXTError::CompilationError("Auxiliary tables must have a name".to_string()));
-                        },
+                            return Err(GXTError::CompilationError(
+                                "Auxiliary tables must have a name".to_string(),
+                            ));
+                        }
                     }
                     table_offset += 16 + e.0.size + 8 + u32::try_from(e.1.buffer.len()).unwrap();
                 }
-                
-                self.write_tkey_to_gxt(file,&main_tkey)?;
+
+                self.write_tkey_to_gxt(file, &main_tkey)?;
                 file.write(b"TDAT")?;
-                file.write(&u32::to_le_bytes(main_tdat.buffer.len().try_into().unwrap()))?;
+                file.write(&u32::to_le_bytes(
+                    main_tdat.buffer.len().try_into().unwrap(),
+                ))?;
                 file.write(&main_tdat.buffer)?;
-                
+
                 for e in &aux_data {
-                    self.write_tkey_to_gxt(file,&e.0)?;
+                    self.write_tkey_to_gxt(file, &e.0)?;
                     file.write(b"TDAT")?;
                     file.write(&u32::to_le_bytes(e.1.buffer.len().try_into().unwrap()))?;
                     file.write(&e.1.buffer)?;
                 }
                 Ok(())
-            },
+            }
             GXTFileFormat::San8 | GXTFileFormat::San16 => {
                 file.write(&u16::to_le_bytes(4))?;
-                file.write(&u16::to_le_bytes( match self.format {
+                file.write(&u16::to_le_bytes(match self.format {
                     GXTFileFormat::San8 => 8,
                     GXTFileFormat::San16 => 16,
-                    _ => { return Err(GXTError::CompilationError("This GTA SA format is somehow not a GTA SA format?".to_string())); }
+                    _ => {
+                        return Err(GXTError::CompilationError(
+                            "This GTA SA format is somehow not a GTA SA format?".to_string(),
+                        ));
+                    }
                 }))?;
 
                 file.write(b"TABL")?;
                 let tabl_size: u32 = 12u32 * (1 + u32::try_from(self.aux_tables.len()).unwrap());
-                file.write(&u32::to_le_bytes( tabl_size ))?;
+                file.write(&u32::to_le_bytes(tabl_size))?;
 
                 let mut table_offset = 4 + tabl_size + 8;
                 file.write(b"MAIN\0\0\0\0")?;
-                file.write(&u32::to_le_bytes( table_offset ))?;
-                table_offset += 8 + main_tkey.size + 8 + u32::try_from(main_tdat.buffer.len()).unwrap();
+                file.write(&u32::to_le_bytes(table_offset))?;
+                table_offset +=
+                    8 + main_tkey.size + 8 + u32::try_from(main_tdat.buffer.len()).unwrap();
 
                 for e in &aux_data {
                     match e.0.name {
                         Some(n) => {
-                            let table_name: [u8;8] = n;
+                            let table_name: [u8; 8] = n;
                             file.write(&table_name)?;
-                            file.write(&u32::to_le_bytes( table_offset ))?;
-                        },
+                            file.write(&u32::to_le_bytes(table_offset))?;
+                        }
                         None => {
-                            return Err(GXTError::CompilationError("Auxiliary tables must have a name".to_string()));
-                        },
+                            return Err(GXTError::CompilationError(
+                                "Auxiliary tables must have a name".to_string(),
+                            ));
+                        }
                     }
                     table_offset += 16 + e.0.size + 8 + u32::try_from(e.1.buffer.len()).unwrap();
                 }
-                
-                self.write_tkey_to_gxt(file,&main_tkey)?;
+
+                self.write_tkey_to_gxt(file, &main_tkey)?;
                 file.write(b"TDAT")?;
-                file.write(&u32::to_le_bytes(main_tdat.buffer.len().try_into().unwrap()))?;
+                file.write(&u32::to_le_bytes(
+                    main_tdat.buffer.len().try_into().unwrap(),
+                ))?;
                 file.write(&main_tdat.buffer)?;
-                
+
                 for e in &aux_data {
-                    self.write_tkey_to_gxt(file,&e.0)?;
+                    self.write_tkey_to_gxt(file, &e.0)?;
                     file.write(b"TDAT")?;
                     file.write(&u32::to_le_bytes(e.1.buffer.len().try_into().unwrap()))?;
                     file.write(&e.1.buffer)?;
                 }
                 Ok(())
-            },
+            }
         }
-
     }
 
     /// Create a new GXTFile structure from the contents of a GXT file.
@@ -962,96 +1147,161 @@ impl GXTFile {
     /// matching hash is found during the reading process, it is replaced with the corresponding
     /// string.
     ///
-    pub fn read_from_gxt (file: &mut (impl Read + std::io::Seek), ordering: &Option<ImportOrdering>, custom_table: &Option<GXTCharacterTable>, name_list: &Option<HashMap<u32, String>>) -> Result<GXTFile,GXTError> {
-        
-        let mut first_four_bytes: [u8; 4] = [0;4];
+    pub fn read_from_gxt(
+        file: &mut (impl Read + std::io::Seek),
+        ordering: &Option<ImportOrdering>,
+        custom_table: &Option<GXTCharacterTable>,
+        name_list: &Option<HashMap<u32, String>>,
+    ) -> Result<GXTFile, GXTError> {
+        let mut first_four_bytes: [u8; 4] = [0; 4];
         file.read_exact(&mut first_four_bytes)?;
 
-        let format = if first_four_bytes == *b"TKEY" { //GTA3 format files do not have a TABL
+        let format = if first_four_bytes == *b"TKEY" {
+            //GTA3 format files do not have a TABL
             GXTFileFormat::Three
-        } else if first_four_bytes == *b"TABL" { //VC format files do
+        } else if first_four_bytes == *b"TABL" {
+            //VC format files do
             GXTFileFormat::Vice
-        } else if first_four_bytes == *b"\x04\0\x08\0" { //SA, 8-bit characters
+        } else if first_four_bytes == *b"\x04\0\x08\0" {
+            //SA, 8-bit characters
             GXTFileFormat::San8
-        } else if first_four_bytes == *b"\x04\0\x10\0" { //SA, 16-bit characters
+        } else if first_four_bytes == *b"\x04\0\x10\0" {
+            //SA, 16-bit characters
             GXTFileFormat::San16
-        } else { 
-            return Err(GXTError::ParsingError("This GXT file does not match any known GTA 3 / VC / SA format.".to_string()));
+        } else {
+            return Err(GXTError::ParsingError(
+                "This GXT file does not match any known GTA 3 / VC / SA format.".to_string(),
+            ));
         };
         file.seek(std::io::SeekFrom::Start(0))?; //seek back to the start
 
         match format {
             GXTFileFormat::Three => {
-                let tkey = gxt_read_tkey(file,&format,None,None,&ordering)?;
+                let tkey = gxt_read_tkey(file, &format, None, None, &ordering)?;
                 return Ok(GXTFile {
-                    main_table: {gxt_read_tdat(file, &tkey, None, &format, &ordering, custom_table, name_list)?},
+                    main_table: {
+                        gxt_read_tdat(
+                            file,
+                            &tkey,
+                            None,
+                            &format,
+                            &ordering,
+                            custom_table,
+                            name_list,
+                        )?
+                    },
                     format: format,
                     aux_tables: IndexMap::new(),
                 });
-            },
+            }
             GXTFileFormat::Vice | GXTFileFormat::San8 | GXTFileFormat::San16 => {
-                
                 match format {
                     GXTFileFormat::San8 | GXTFileFormat::San16 => {
-                        let mut raw_version_number: [u8; 2] = [0;2];
-                        let mut raw_character_size: [u8; 2] = [0;2];
+                        let mut raw_version_number: [u8; 2] = [0; 2];
+                        let mut raw_character_size: [u8; 2] = [0; 2];
                         file.read_exact(&mut raw_version_number)?;
                         file.read_exact(&mut raw_character_size)?;
                         let version_number = u16::from_le_bytes(raw_version_number);
                         let character_size = u16::from_le_bytes(raw_character_size);
-                    
-                        if version_number != 4 {return Err(GXTError::ParsingError(format!("The GXT file has version {}, must have version 4",version_number) ));}
+
+                        if version_number != 4 {
+                            return Err(GXTError::ParsingError(format!(
+                                "The GXT file has version {}, must have version 4",
+                                version_number
+                            )));
+                        }
                         match character_size {
                             8 => (),
                             16 => (),
-                            _ => {return Err(GXTError::ParsingError(format!("The GXT file has character size {}, must have 8 or 16",character_size) ));}
+                            _ => {
+                                return Err(GXTError::ParsingError(format!(
+                                    "The GXT file has character size {}, must have 8 or 16",
+                                    character_size
+                                )));
+                            }
                         }
-                    },
-                    _ => {},
+                    }
+                    _ => {}
                 }
 
                 let tabl = gxt_read_tabl(file)?;
 
                 if !tabl.entries[0].is_main {
-                    return Err(GXTError::ParsingError("GXT File error: The first table must be MAIN".to_string()));
+                    return Err(GXTError::ParsingError(
+                        "GXT File error: The first table must be MAIN".to_string(),
+                    ));
                 }
 
-                let _tkeys: Result<Vec<GXTInternalTKEY>,_> = 
-                    tabl.entries.iter().map(|k| gxt_read_tkey(
-                        file,
-                        &format,
-                        match k.is_main { true => None, false => Some(k.name), },
-                        Some(k.offset),
-                        ordering
-                        )).collect();
+                let _tkeys: Result<Vec<GXTInternalTKEY>, _> = tabl
+                    .entries
+                    .iter()
+                    .map(|k| {
+                        gxt_read_tkey(
+                            file,
+                            &format,
+                            match k.is_main {
+                                true => None,
+                                false => Some(k.name),
+                            },
+                            Some(k.offset),
+                            ordering,
+                        )
+                    })
+                    .collect();
                 let tkeys = _tkeys?;
 
-                let mut _key_ordering: Vec<String> = tkeys[1..].iter().map(|k| match k.name {
-                    None => "".to_string(),
-                    Some(n) => string_from_name(&GXTStringName::Text(n), name_list)
-                }).collect();
-                let mut _offset_ordering: Vec<(String,u32)> = tkeys[1..].iter().map(|k| (match k.name {
-                    None => "".to_string(),
-                    Some(n) => string_from_name(&GXTStringName::Text(n), name_list)
-                }, k.offset)).collect();
-                _key_ordering.sort_by(|a,b| (a).cmp(&b));
-                _offset_ordering.sort_by(|a,b| (a.1).cmp(&b.1));
+                let mut _key_ordering: Vec<String> = tkeys[1..]
+                    .iter()
+                    .map(|k| match k.name {
+                        None => "".to_string(),
+                        Some(n) => string_from_name(&GXTStringName::Text(n), name_list),
+                    })
+                    .collect();
+                let mut _offset_ordering: Vec<(String, u32)> = tkeys[1..]
+                    .iter()
+                    .map(|k| {
+                        (
+                            match k.name {
+                                None => "".to_string(),
+                                Some(n) => string_from_name(&GXTStringName::Text(n), name_list),
+                            },
+                            k.offset,
+                        )
+                    })
+                    .collect();
+                _key_ordering.sort_by(|a, b| (a).cmp(&b));
+                _offset_ordering.sort_by(|a, b| (a.1).cmp(&b.1));
 
-                let mut aux_tables: IndexMap<String, IndexMap<String,String>> = IndexMap::new();
+                let mut aux_tables: IndexMap<String, IndexMap<String, String>> = IndexMap::new();
                 for e in &tkeys[1..] {
                     let name_string = match e.name {
-                        None => { return Err(GXTError::ParsingError("An auxiliary table must have a name!".to_string())); },
-                        Some(n) => string_from_name(&GXTStringName::Text(n), name_list)
-                        };
+                        None => {
+                            return Err(GXTError::ParsingError(
+                                "An auxiliary table must have a name!".to_string(),
+                            ));
+                        }
+                        Some(n) => string_from_name(&GXTStringName::Text(n), name_list),
+                    };
 
-                    let new_table = gxt_read_tdat(file, &e, Some(e.offset), &format, ordering, custom_table, name_list);
+                    let new_table = gxt_read_tdat(
+                        file,
+                        &e,
+                        Some(e.offset),
+                        &format,
+                        ordering,
+                        custom_table,
+                        name_list,
+                    );
                     match new_table {
                         Ok(t) => {
                             aux_tables.insert(name_string.clone(), t);
-                        },
+                        }
                         Err(x) => {
-                            return Err(GXTError::ParsingError(format!("Error while parsing table ({}): {}",&name_string, x)));
-                        },
+                            return Err(GXTError::ParsingError(format!(
+                                "Error while parsing table ({}): {}",
+                                &name_string, x
+                            )));
+                        }
                     };
                 }
 
@@ -1062,183 +1312,219 @@ impl GXTFile {
                 //    Some(ImportOrdering::Offset) => {
                 //    },
                 //}
-                
+
                 //eprintln!("Reading main table...");
                 return Ok(GXTFile {
-                    main_table: gxt_read_tdat(file, &tkeys[0], Some(tkeys[0].offset), &format, ordering, custom_table, name_list)?,
+                    main_table: gxt_read_tdat(
+                        file,
+                        &tkeys[0],
+                        Some(tkeys[0].offset),
+                        &format,
+                        ordering,
+                        custom_table,
+                        name_list,
+                    )?,
                     format: format,
                     aux_tables,
                 });
-            },
+            }
         };
     }
 }
 
+/// A small group of tests used to make sure the program handles files correctly.
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::fs::File;
     use std::io::BufReader;
-    use super::*;
 
     #[test]
     fn gta3_compilation_test() {
-            
         let _f = File::open("test_files/gta3.txt").expect("Unable to open text file");
         let mut file = BufReader::new(_f);
-        let gxt = GXTFile::read_from_text(&mut file).expect("Unable to load GXT data from text file");
-        
-        assert!( gxt.main_table.len() == 10 );
-        assert!( gxt.main_table.get("FEM_MM") == Some(&"HELLO WORLD".to_string()) );
+        let gxt =
+            GXTFile::read_from_text(&mut file).expect("Unable to load GXT data from text file");
 
-        let mut compiled_data: Vec<u8> = vec!();
-        gxt.write_to_gxt(&mut compiled_data,&None).expect("Unable to compile GXT file");
+        assert!(gxt.main_table.len() == 10);
+        assert!(gxt.main_table.get("FEM_MM") == Some(&"HELLO WORLD".to_string()));
+
+        let mut compiled_data: Vec<u8> = vec![];
+        gxt.write_to_gxt(&mut compiled_data, &None)
+            .expect("Unable to compile GXT file");
 
         // raw GXT file made by hand!
-        let mut comparison_file = File::open("test_files/gta3.gxt").expect("Unable to open GXT file");
-        let mut comparison_data: Vec<u8> = vec!();
-        comparison_file.read_to_end(&mut comparison_data).expect("Unable to read test GXT value");
+        let mut comparison_file =
+            File::open("test_files/gta3.gxt").expect("Unable to open GXT file");
+        let mut comparison_data: Vec<u8> = vec![];
+        comparison_file
+            .read_to_end(&mut comparison_data)
+            .expect("Unable to read test GXT value");
 
-        assert!( compiled_data == comparison_data );
-        
+        assert!(compiled_data == comparison_data);
     }
-    
+
     #[test]
     fn gtavc_compilation_test() {
-            
         let _f = File::open("test_files/gtavc.txt").expect("Unable to open text file");
         let mut file = BufReader::new(_f);
-        let gxt = GXTFile::read_from_text(&mut file).expect("Unable to load GXT data from text file");
-        
-        assert!( gxt.main_table.len() == 10 );
-        assert!( gxt.main_table.get("FEM_MM") == Some(&"HELLO WORLD".to_string()) );
+        let gxt =
+            GXTFile::read_from_text(&mut file).expect("Unable to load GXT data from text file");
 
-        assert!( gxt.aux_tables.len() == 1 );
+        assert!(gxt.main_table.len() == 10);
+        assert!(gxt.main_table.get("FEM_MM") == Some(&"HELLO WORLD".to_string()));
 
-        let mut compiled_data: Vec<u8> = vec!();
-        gxt.write_to_gxt(&mut compiled_data,&None).expect("Unable to compile GXT file");
+        assert!(gxt.aux_tables.len() == 1);
+
+        let mut compiled_data: Vec<u8> = vec![];
+        gxt.write_to_gxt(&mut compiled_data, &None)
+            .expect("Unable to compile GXT file");
 
         // raw GXT file made by hand!
-        let mut comparison_file = File::open("test_files/gtavc.gxt").expect("Unable to open GXT file");
-        let mut comparison_data: Vec<u8> = vec!();
-        comparison_file.read_to_end(&mut comparison_data).expect("Unable to read test GXT value");
+        let mut comparison_file =
+            File::open("test_files/gtavc.gxt").expect("Unable to open GXT file");
+        let mut comparison_data: Vec<u8> = vec![];
+        comparison_file
+            .read_to_end(&mut comparison_data)
+            .expect("Unable to read test GXT value");
 
-        assert!( compiled_data == comparison_data );
-        
+        assert!(compiled_data == comparison_data);
     }
-    
+
     #[test]
     fn gtasa_compilation_test() {
-            
         let _f = File::open("test_files/gtasa.txt").expect("Unable to open text file");
         let mut file = BufReader::new(_f);
-        let gxt = GXTFile::read_from_text(&mut file).expect("Unable to load GXT data from text file");
-        
-        assert!( gxt.main_table.len() == 10 );
+        let gxt =
+            GXTFile::read_from_text(&mut file).expect("Unable to load GXT data from text file");
+
+        assert!(gxt.main_table.len() == 10);
         //assert!( gxt.main_table.get("FEM_MM") == Some(&"HELLO WORLD".to_string()) );
 
-        assert!( gxt.aux_tables.len() == 1 );
+        assert!(gxt.aux_tables.len() == 1);
 
-        let mut compiled_data: Vec<u8> = vec!();
-        gxt.write_to_gxt(&mut compiled_data,&None).expect("Unable to compile GXT file");
+        let mut compiled_data: Vec<u8> = vec![];
+        gxt.write_to_gxt(&mut compiled_data, &None)
+            .expect("Unable to compile GXT file");
 
         // raw GXT file made by hand!
-        let mut comparison_file = File::open("test_files/gtasa.gxt").expect("Unable to open GXT file");
-        let mut comparison_data: Vec<u8> = vec!();
-        comparison_file.read_to_end(&mut comparison_data).expect("Unable to read test GXT value");
+        let mut comparison_file =
+            File::open("test_files/gtasa.gxt").expect("Unable to open GXT file");
+        let mut comparison_data: Vec<u8> = vec![];
+        comparison_file
+            .read_to_end(&mut comparison_data)
+            .expect("Unable to read test GXT value");
 
-        assert!( compiled_data == comparison_data );
-        
+        assert!(compiled_data == comparison_data);
     }
 
     #[test]
     fn gta3_cannot_have_aux_tables_test() {
-
         let x = GXTFile::new(
             GXTFileFormat::Three,
-            IndexMap::from([("HELLO".to_string(),"Hello world!".to_string()),("TEST".to_string(),"Test message".to_string())]),
-            IndexMap::from([("AUX1".to_string(),
-                    IndexMap::from([("HELLO".to_string(),"Hello world!".to_string())]))]),
-            );
+            IndexMap::from([
+                ("HELLO".to_string(), "Hello world!".to_string()),
+                ("TEST".to_string(), "Test message".to_string()),
+            ]),
+            IndexMap::from([(
+                "AUX1".to_string(),
+                IndexMap::from([("HELLO".to_string(), "Hello world!".to_string())]),
+            )]),
+        );
 
-        let mut compiled_data: Vec<u8> = vec!();
-        let Err(_x) = x.write_to_gxt(&mut compiled_data,&None) else {
+        let mut compiled_data: Vec<u8> = vec![];
+        let Err(_x) = x.write_to_gxt(&mut compiled_data, &None) else {
             panic!("There should be an error, as GTA 3 files can't contain aux tables");
         };
-
     }
-    
+
     #[test]
     fn overly_long_string_names_test() {
-
         let x = GXTFile::new(
             GXTFileFormat::Three,
-            IndexMap::from([("HELLO".to_string(),"Hello world!".to_string()),("OVERLONG1".to_string(),"Test message".to_string())]),
+            IndexMap::from([
+                ("HELLO".to_string(), "Hello world!".to_string()),
+                ("OVERLONG1".to_string(), "Test message".to_string()),
+            ]),
             IndexMap::new(),
+        );
+
+        let mut compiled_data: Vec<u8> = vec![];
+        let Err(_x) = x.write_to_gxt(&mut compiled_data, &None) else {
+            panic!(
+                "There should be an error, as GTA 3 / VC files can't contain keys longer than 8 bytes"
             );
-
-        let mut compiled_data: Vec<u8> = vec!();
-        let Err(_x) = x.write_to_gxt(&mut compiled_data,&None) else {
-            panic!("There should be an error, as GTA 3 / VC files can't contain keys longer than 8 bytes");
         };
-
     }
-    
+
     #[test]
     fn overly_long_string_names_allowed_in_sa_test() {
-
         let x = GXTFile::new(
             GXTFileFormat::San8,
-            IndexMap::from([("HELLO".to_string(),"Hello world!".to_string()),("OVERLONG1".to_string(),"Test message".to_string())]),
-            IndexMap::from([("AUX1".to_string(),
-                    IndexMap::from([("HELLO".to_string(),"Hello world!".to_string())]))]),
+            IndexMap::from([
+                ("HELLO".to_string(), "Hello world!".to_string()),
+                ("OVERLONG1".to_string(), "Test message".to_string()),
+            ]),
+            IndexMap::from([(
+                "AUX1".to_string(),
+                IndexMap::from([("HELLO".to_string(), "Hello world!".to_string())]),
+            )]),
+        );
+
+        let mut compiled_data: Vec<u8> = vec![];
+        let Ok(_v) = x.write_to_gxt(&mut compiled_data, &None) else {
+            panic!(
+                "There should be no error using string names longer than 8 bytes in GTA SA format files"
             );
-
-        let mut compiled_data: Vec<u8> = vec!();
-        let Ok(_v) = x.write_to_gxt(&mut compiled_data,&None) else {
-            panic!("There should be no error using string names longer than 8 bytes in GTA SA format files");
         };
-
     }
-    
+
     #[test]
     fn string_names_decompiling_with_hashes() {
-
         // in order to avoid name collisions between string names starting with actual hash signs
         // and hashes encoded as #XXXXXXXX, strings starting with hashes get an extra hash
         // prepended
 
-        let _f = File::open("test_files/gta3_key_starts_with_hash.gxt").expect("Unable to open text file");
+        let _f = File::open("test_files/gta3_key_starts_with_hash.gxt")
+            .expect("Unable to open text file");
         let mut file = BufReader::new(_f);
-        let x = GXTFile::read_from_gxt(&mut file,&Some(ImportOrdering::Offset),&None,&None).expect("Unable to load GXT data from text file");
+        let x = GXTFile::read_from_gxt(&mut file, &Some(ImportOrdering::Offset), &None, &None)
+            .expect("Unable to load GXT data from text file");
 
         assert!(x.main_table.contains_key("##EM_MM")); //the actual name is #EM_MM
         assert!(x.main_table.contains_key("###M_NG")); //the actual name is ##M_NG
-
     }
-    
+
     #[test]
     fn string_names_compiling_with_hashes() {
-
         // in order to avoid name collisions between string names starting with actual hash signs
         // and hashes encoded as #XXXXXXXX, compiling a GXT file with a string name containing an
         // actual # sign requires duplicating it
 
         let x = GXTFile::new(
             GXTFileFormat::San8,
-            IndexMap::from([("#01234567".to_string(),"Hash".to_string()),("##01234567".to_string(),"Raw name".to_string())]),
+            IndexMap::from([
+                ("#01234567".to_string(), "Hash".to_string()),
+                ("##01234567".to_string(), "Raw name".to_string()),
+            ]),
             Default::default(),
-            );
+        );
 
-        let mut compiled_data: Vec<u8> = vec!();
-        let Ok(_v) = x.write_to_gxt(&mut compiled_data,&None) else {
-            panic!("There should be no error using string names longer than 8 bytes in GTA SA format files");
+        let mut compiled_data: Vec<u8> = vec![];
+        let Ok(_v) = x.write_to_gxt(&mut compiled_data, &None) else {
+            panic!(
+                "There should be no error using string names longer than 8 bytes in GTA SA format files"
+            );
         };
-        
+
         // raw GXT file made by hand!
-        let mut comparison_file = File::open("test_files/gtasa_hashtest.gxt").expect("Unable to open GXT file");
-        let mut comparison_data: Vec<u8> = vec!();
-        comparison_file.read_to_end(&mut comparison_data).expect("Unable to read test GXT value");
-        
-        assert!( compiled_data == comparison_data );
+        let mut comparison_file =
+            File::open("test_files/gtasa_hashtest.gxt").expect("Unable to open GXT file");
+        let mut comparison_data: Vec<u8> = vec![];
+        comparison_file
+            .read_to_end(&mut comparison_data)
+            .expect("Unable to read test GXT value");
+
+        assert!(compiled_data == comparison_data);
     }
 }
