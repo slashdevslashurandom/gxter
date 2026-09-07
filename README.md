@@ -1,6 +1,11 @@
 # gxter
 
-**This project is moving to Codeberg: <https://codeberg.org/dev_urandom/gxter>**
+**This project was moved to Codeberg: <https://codeberg.org/dev_urandom/gxter>.**
+
+This GitHub repository will not receive further updates. Check Codeberg or the
+[crates.io repository](https://crates.io/crates/gxter) for up-to-date info.
+
+---
 
 `gxter` is a (WIP) tool for reading and writing GXT files for Rockstar
 Games' Grand Theft Auto games, specifically aiming to support GTA III, Vice City
